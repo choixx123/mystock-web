@@ -4,9 +4,9 @@ import re
 import time
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots # 📊 차트 합성용 도구 추가!
+from plotly.subplots import make_subplots
 
-# 🔥 CEO 전용 VIP 장부 (글로벌 거인들 듀얼 상장 완벽 세팅)
+# 🔥 CEO 전용 VIP 장부
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -29,7 +29,6 @@ def translate_to_english(text):
     except:
         return text, False 
 
-# 📈 이동평균선(MA) 계산 엔진
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
@@ -92,15 +91,31 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
         
-        # 1. 시가총액 및 52주 데이터 가져오기 (신규 기능!)
-        quote_url = f"https://query1.finance.yahoo.com/v11/finance/quote?symbols={symbol}"
+        # 🛠️ 1. 시가총액 및 52주 데이터 (야후 백도어 v10 + 수동 계산 엔진 장착!)
+        market_cap, high_52, low_52 = 0, 0, 0
+        summary_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryDetail"
         try:
-            quote_data = requests.get(quote_url, headers=headers).json()['quoteResponse']['result'][0]
-            market_cap = quote_data.get('marketCap', 0)
-            high_52 = quote_data.get('fiftyTwoWeekHigh', 0)
-            low_52 = quote_data.get('fiftyTwoWeekLow', 0)
+            summary_res = requests.get(summary_url, headers=headers).json()
+            summary_data = summary_res['quoteSummary']['result'][0]['summaryDetail']
+            market_cap = summary_data.get('marketCap', {}).get('raw', 0)
+            high_52 = summary_data.get('fiftyTwoWeekHigh', {}).get('raw', 0)
+            low_52 = summary_data.get('fiftyTwoWeekLow', {}).get('raw', 0)
         except:
-            market_cap, high_52, low_52 = 0, 0, 0
+            pass # 백도어가 막히면 조용히 패스하고 아래 플랜 B로 넘어감
+            
+        # 🛠️ 플랜 B: 52주 고점/저점이 없으면 1년치 차트를 뜯어서 터미널이 직접 계산!
+        if not high_52 or not low_52:
+            try:
+                backup_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
+                backup_res = requests.get(backup_url, headers=headers).json()
+                highs = backup_res['chart']['result'][0]['indicators']['quote'][0]['high']
+                lows = backup_res['chart']['result'][0]['indicators']['quote'][0]['low']
+                valid_highs = [h for h in highs if h is not None]
+                valid_lows = [l for l in lows if l is not None]
+                if valid_highs: high_52 = max(valid_highs)
+                if valid_lows: low_52 = min(valid_lows)
+            except:
+                pass
 
         # 2. 차트 및 거래량 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
@@ -141,11 +156,11 @@ if search_term:
         if currency == 'KRW':
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "정보 없음"
+            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "계산중..."
         else:
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "정보 없음"
+            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "계산중..."
             
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
@@ -166,10 +181,9 @@ if search_term:
         try:
             timestamps = result['timestamp']
             close_prices = result['indicators']['quote'][0]['close']
-            volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices)) # 거래량 추가!
+            volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices))
             
             dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
-            # 빈 데이터 필터링 (가격, 거래량 동시 처리)
             clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
             
             if timeframe == "3년":
@@ -184,23 +198,15 @@ if search_term:
             clean_prices = [x[1] for x in clean_data]
             clean_volumes = [x[2] for x in clean_data]
             
-            # 이동평균선(MA) 생성
             ma20 = calc_ma(clean_prices, 20)
             ma60 = calc_ma(clean_prices, 60)
 
-            # 📊 이중 차트(가격 + 거래량) 생성
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # 1. 주가 선
             fig.add_trace(go.Scatter(x=clean_dates, y=clean_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
-            
-            # 2. 20일 이평선 (황금색 점선)
             fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-            
-            # 3. 60일 이평선 (보라색 점선)
             fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
 
-            # 4. 거래량 바 (상승/하락에 따라 색상 변경)
             vol_colors = ['#ff4b4b' if i > 0 and clean_prices[i] < clean_prices[i-1] else '#00cc96' for i in range(len(clean_prices))]
             fig.add_trace(go.Bar(x=clean_dates, y=clean_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
             
@@ -208,12 +214,11 @@ if search_term:
                 title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
                 xaxis_title="시간 (Time)" if timeframe == "1주일" else "날짜 (Date)",
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1) # 범례를 위로
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             
-            # Y축 2개 설정 (거래량이 차트 밑바닥에만 깔리도록 높이 조절)
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
-            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(clean_volumes)*4]) # 거래량은 아래 1/4만 차지
+            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(clean_volumes)*4 if clean_volumes and max(clean_volumes) > 0 else 100])
             
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
