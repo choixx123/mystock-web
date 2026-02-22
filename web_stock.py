@@ -1,4 +1,4 @@
-import streamlit as st
+\import streamlit as st
 import requests
 import re
 import time
@@ -25,7 +25,6 @@ def translate_to_english(text):
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
 
-# 🔥 [핵심 마법] 화살표 메뉴에서 주식을 고르면, 그 글자를 검색창에 쏴주는 기능!
 if "search_input" not in st.session_state:
     st.session_state.search_input = "테슬라"
 if "vip_dropdown" not in st.session_state:
@@ -34,12 +33,9 @@ if "vip_dropdown" not in st.session_state:
 def apply_vip_search():
     selected = st.session_state.vip_dropdown
     if selected != "🔽 VIP 종목 선택":
-        # 고른 종목을 검색창에 자동 입력!
         st.session_state.search_input = selected
-        # 메뉴는 다시 기본 상태로 되돌려놓음 (깔끔하게!)
         st.session_state.vip_dropdown = "🔽 VIP 종목 선택" 
 
-# 🔥 [UI 개선] 검색창, 작아진 화살표 메뉴, 라이브 스위치를 한 줄에 나란히 배치!
 col1, col2, col3 = st.columns([4, 2, 2])
 with col1:
     st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
@@ -152,12 +148,13 @@ if search_term:
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0)
             )
             
-            # 주말 컷(Cut) 코드 유지!
-            fig.update_xaxes(
-                rangebreaks=[
-                    dict(bounds=["sat", "mon"]) 
-                ]
-            )
+            # 🔥 [스마트 주말 컷] 1년 이하(일간/분간 데이터)일 때만 주말을 잘라낸다!
+            if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
+                fig.update_xaxes(
+                    rangebreaks=[
+                        dict(bounds=["sat", "mon"]) 
+                    ]
+                )
 
             st.plotly_chart(fig, use_container_width=True)
             
