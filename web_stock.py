@@ -39,8 +39,6 @@ def calc_ma(prices, window):
     return ma
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
-
-# 🔥 제목 깔끔하게 수정 완료!
 st.title("🌍 글로벌 주식 터미널")
 
 if "search_input" not in st.session_state:
@@ -58,7 +56,6 @@ col1, col2, col3 = st.columns([4, 2, 2])
 with col1:
     st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
 with col2:
-    # 🔥 VIP 종목 -> 주요 종목으로 텍스트 변경
     st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
     st.write("") 
@@ -66,7 +63,9 @@ with col3:
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
 
 search_term = st.session_state.search_input
-timeframe = st.radio("⏳ 조회 기간 선택", ["1주일", "1달", "3달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
+
+# 🔥 3달 삭제! 1일 추가! (기본 선택은 '1달'로 유지)
+timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
 
 if search_term:
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -171,8 +170,9 @@ if search_term:
         # --- 📈 차트 그리기 ---
         st.markdown("---")
         try:
-            fetch_range_map = {"1주일": "1mo", "1달": "6mo", "3달": "1y", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
-            interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
+            # 🔥 1일은 5분 단위(5m)로 가져옴! (안정성을 위해 5일치를 몰래 가져와서 이평선 계산)
+            fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
+            interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
             
             selected_range = fetch_range_map[timeframe]
             selected_interval = interval_map[timeframe]
@@ -192,8 +192,16 @@ if search_term:
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
 
-            cutoff_map = {"1주일": 7, "1달": 30, "3달": 90, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
-            cutoff_date = datetime.now() - timedelta(days=cutoff_map[timeframe])
+            # 🔥 스마트 컷오프 로직: 1일의 경우 가장 최근 '장 열린 날' 하루만 완벽하게 도려냄!
+            if timeframe == "1일":
+                if clean_data:
+                    last_date = clean_data[-1][0]
+                    cutoff_date = datetime(last_date.year, last_date.month, last_date.day)
+                else:
+                    cutoff_date = datetime.now() - timedelta(days=1)
+            else:
+                cutoff_map = {"1주일": 7, "1달": 30, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
+                cutoff_date = datetime.now() - timedelta(days=cutoff_map[timeframe])
 
             filtered_dates, filtered_prices, filtered_volumes = [], [], []
             filtered_ma20, filtered_ma60 = [], []
@@ -210,9 +218,13 @@ if search_term:
             
             fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3), connectgaps=True), secondary_y=False)
 
-            if timeframe == "1달":
+            # 🔥 1일, 1주일은 분봉이므로 'n선'으로 표기! (게다가 1주일도 이평선이 보이게 수정 완료!)
+            if timeframe in ["1일", "1주일"]:
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
+            elif timeframe == "1달":
                 fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
-            elif timeframe in ["3달", "6달", "1년"]:
+            elif timeframe in ["6달", "1년"]:
                 fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
                 fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
             elif timeframe in ["3년", "5년"]:
@@ -227,7 +239,7 @@ if search_term:
             
             fig.update_layout(
                 title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
-                xaxis_title="날짜 (Date)",
+                xaxis_title="시간 (Time)" if timeframe in ["1일", "1주일"] else "날짜 (Date)",
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
@@ -235,7 +247,7 @@ if search_term:
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(filtered_volumes)*4 if filtered_volumes and max(filtered_volumes) > 0 else 100])
             
-            if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
+            if timeframe in ["1일", "1주일", "1달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
