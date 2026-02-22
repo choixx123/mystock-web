@@ -1,11 +1,11 @@
 import streamlit as st
 import requests
 import re
-import time  # 🔥 5초 타이머를 위한 시간 부품 추가!
+import time
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# 🔥 CEO 전용 VIP 장부 (정식 명칭으로 변경!)
+# 🔥 CEO 전용 VIP 장부
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "루이비통": "MC.PA", "엔비디아": "NVDA", "삼성전자": "005930.KS",
@@ -22,18 +22,28 @@ def translate_to_english(text):
     except:
         return text, False 
 
-# 🎨 웹페이지 기본 설정
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
-
 st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
 
-# 검색창과 라이브 스위치 배치
+# 🔥 [핵심 기능 1] 버튼을 누르면 검색창 글씨가 자동으로 바뀌게 하는 '기억 장치'
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = "테슬라"
+
+def update_search(stock_name):
+    st.session_state.search_query = stock_name
+
 col1, col2 = st.columns([3, 1])
 with col1:
-    search_term = st.text_input("🔍 종목명/티커 입력 후 [Enter]를 누르세요 (예: 테슬라)", "테슬라")
-    # 🔥 [업그레이드 포인트] 검색창 바로 밑에 VIP 리스트를 예쁘게 보여준다!
-    vip_list_text = ", ".join(vip_dict.keys())
-    st.caption(f"💡 **빠른 검색 지원 종목:** {vip_list_text}")
+    st.markdown("💡 **빠른 검색 (버튼을 누르면 즉시 조회됩니다)**")
+    
+    # VIP 종목들을 5칸씩 예쁘게 버튼으로 나열
+    btn_cols = st.columns(5)
+    vip_names = list(vip_dict.keys())
+    for i, name in enumerate(vip_names):
+        btn_cols[i % 5].button(name, on_click=update_search, args=(name,))
+        
+    # 검색창 (버튼을 누르면 이 안의 글자가 바뀜!)
+    search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_query")
     
 with col2:
     st.write("") 
@@ -49,7 +59,6 @@ if search_term:
         symbol = ""
         official_name = original_name
         
-        # 정식 명칭으로 검색 매칭
         if original_name in vip_dict:
             symbol = vip_dict[original_name]
         else:
@@ -89,13 +98,19 @@ if search_term:
         change_pct = (change / prev_close) * 100
         curr_symbol = "₩" if currency == "KRW" else ("$" if currency == "USD" else ("€" if currency == "EUR" else currency))
         
+        # 🔥 [핵심 기능 2] 기호(+/-)를 무조건 맨 앞으로 빼서 화살표 방향을 완벽하게 고침!
+        sign = "-" if change < 0 else "+"
+        abs_change = abs(change)
+        
         st.subheader(f"{official_name} ({symbol})")
         
         if currency == 'KRW':
-            st.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=f"{change:,.0f} 원 ({change_pct:+.2f}%)")
+            delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
+            st.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
         else:
+            delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             col1, col2 = st.columns(2)
-            col1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=f"{curr_symbol}{change:,.2f} ({change_pct:+.2f}%)")
+            col1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
                 ex_res = requests.get(ex_url, headers=headers).json()
@@ -138,12 +153,10 @@ if search_term:
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # 🔥 라이브 모드 (조용한 5초 스니킹 모드)
             if live_mode:
                 if "live_on" not in st.session_state:
-                    st.toast("🔴 라이브 모드 ON: 이제부터 5초마다 조용히 자동 갱신됩니다!", icon="⚡")
+                    st.toast("🔴 라이브 모드 ON: 5초마다 자동 갱신됩니다!", icon="⚡")
                     st.session_state.live_on = True 
-                
                 time.sleep(5)
                 st.rerun()
             else:
