@@ -16,7 +16,8 @@ vip_dict = {
     "소니 (일본)": "6758.T", "소니 (미국)": "SONY",
     "알리바바 (홍콩)": "9988.HK", "알리바바 (미국)": "BABA",
     "ASML (네덜란드)": "ASML.AS", "ASML (미국)": "ASML",
-    "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
+    "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY",
+    "쿠팡": "CPNG"
 }
 
 def translate_to_english(text):
@@ -112,20 +113,15 @@ if search_term:
                 else:
                     prev_close = price
             
-            # 🛠️ [패치 적용] 실시간 거래량 지속 갱신!
             today_volume = meta.get('regularMarketVolume', 0)
             currency = meta.get('currency', 'USD')
             
             day_change = price - prev_close
             day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
             
-            # 🛠️ [패치 적용] 과거 52주 최고/최저 데이터 추출 후, 현재 '라이브 가격'과 무한 배틀!
             historical_high = max(valid_highs) if valid_highs else 0
             historical_low = min(valid_lows) if valid_lows else 0
-            
-            # 라이브 가격이 기존 최고가를 뚫으면 즉시 반영!
             high_52 = max(historical_high, price)
-            # 라이브 가격이 기존 최저가를 뚫으면 즉시 반영!
             low_52 = min(historical_low, price) if historical_low > 0 else price
             
         else:
@@ -202,14 +198,8 @@ if search_term:
 
             for i in range(len(clean_data)):
                 if clean_data[i][0] >= cutoff_date:
-                    if timeframe == "1주일":
-                        d_str = clean_data[i][0].strftime('%Y-%m-%d %H:%M')
-                    elif timeframe == "10년":
-                        d_str = clean_data[i][0].strftime('%Y-%m')
-                    else:
-                        d_str = clean_data[i][0].strftime('%Y-%m-%d')
-                    
-                    filtered_dates.append(d_str)
+                    # 🔥 [핵심 패치] 문자로 강제 변환하지 않고 시간 원본 객체 그대로 사용!
+                    filtered_dates.append(clean_data[i][0])
                     filtered_prices.append(clean_data[i][1])
                     filtered_volumes.append(clean_data[i][2])
                     filtered_ma20.append(ma20_full[i])
@@ -235,7 +225,7 @@ if search_term:
             
             fig.update_layout(
                 title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
-                xaxis_title="시간 (Time)" if timeframe == "1주일" else "날짜 (Date)",
+                xaxis_title="날짜 (Date)",
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
@@ -243,6 +233,7 @@ if search_term:
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(filtered_volumes)*4 if filtered_volumes and max(filtered_volumes) > 0 else 100])
             
+            # 주말 갭 제거 (1주, 1달, 3달, 6달, 1년일 때만)
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
