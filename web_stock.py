@@ -5,11 +5,17 @@ import time
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# 🔥 CEO 전용 VIP 장부
+# 🔥 CEO 전용 VIP 장부 (글로벌 거인들 본진/미국섭 대거 추가!)
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
-    "루이비통": "MC.PA", "엔비디아": "NVDA", "삼성전자": "005930.KS",
-    "테슬라": "TSLA", "애플": "AAPL", "마이크로소프트": "MSFT"
+    "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
+    "애플": "AAPL", "마이크로소프트": "MSFT",
+    "토요타 (일본)": "7203.T", "토요타 (미국)": "TM",
+    "TSMC (대만)": "2330.TW", "TSMC (미국)": "TSM",
+    "소니 (일본)": "6758.T", "소니 (미국)": "SONY",
+    "알리바바 (홍콩)": "9988.HK", "알리바바 (미국)": "BABA",
+    "ASML (네덜란드)": "ASML.AS", "ASML (미국)": "ASML",
+    "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
 def translate_to_english(text):
@@ -93,7 +99,15 @@ if search_term:
         
         change = price - prev_close
         change_pct = (change / prev_close) * 100
-        curr_symbol = "₩" if currency == "KRW" else ("$" if currency == "USD" else ("€" if currency == "EUR" else currency))
+        
+        # 🔥 대만(TWD), 홍콩(HKD) 등 다양한 화폐 기호 완벽 지원!
+        if currency == "KRW": curr_symbol = "₩"
+        elif currency == "JPY": curr_symbol = "¥"
+        elif currency == "USD": curr_symbol = "$"
+        elif currency == "EUR": curr_symbol = "€"
+        elif currency == "TWD": curr_symbol = "NT$"
+        elif currency == "HKD": curr_symbol = "HK$"
+        else: curr_symbol = currency
         
         sign = "-" if change < 0 else "+"
         abs_change = abs(change)
@@ -148,7 +162,6 @@ if search_term:
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0)
             )
             
-            # 🔥 [스마트 주말 컷] 1년 이하(일간/분간 데이터)일 때만 주말을 잘라낸다!
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
                 fig.update_xaxes(
                     rangebreaks=[
@@ -172,5 +185,4 @@ if search_term:
             
     except Exception as e:
         st.error(f"❌ 시스템 에러 발생: {e}")
-
         
