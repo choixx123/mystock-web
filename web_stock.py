@@ -121,14 +121,21 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
 
-        # 🔥 종목 상세 정보 (재무 지표) 가져오기
-        quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-        quote_data = requests.get(quote_url, headers=headers).json()
-        quote_result = quote_data['quoteResponse']['result'][0] if quote_data['quoteResponse']['result'] else {}
-
-        market_cap = quote_result.get('marketCap', 0)
-        pe_ratio = quote_result.get('trailingPE', None)
-        div_yield = quote_result.get('trailingAnnualDividendYield', 0) * 100
+        # 🔥 종목 상세 정보 (재무 지표) 가져오기 - 에러 철벽 방어 적용!!!
+        market_cap, pe_ratio, div_yield = 0, None, 0
+        try:
+            quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+            quote_res = requests.get(quote_url, headers=headers, timeout=5)
+            if quote_res.status_code == 200:
+                quote_data = quote_res.json()
+                # 'quoteResponse'가 무사히 있는지, 'result'가 비어있지 않은지 꼼꼼히 체크!
+                if 'quoteResponse' in quote_data and quote_data['quoteResponse'].get('result'):
+                    quote_result = quote_data['quoteResponse']['result'][0]
+                    market_cap = quote_result.get('marketCap', 0)
+                    pe_ratio = quote_result.get('trailingPE', None)
+                    div_yield = quote_result.get('trailingAnnualDividendYield', 0) * 100
+        except Exception:
+            pass # 데이터를 못 불러와도 에러 띄우지 않고 쿨하게 넘김!
 
         # 주가 및 기본 정보 가져오기
         url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -157,7 +164,7 @@ if search_term:
             st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
 
-        # 🔥 국가별 캔들 색상 로직 (천재적인 아이디어 반영!)
+        # 🔥 국가별 캔들 색상 로직 
         is_korean = symbol.endswith('.KS') or symbol.endswith('.KQ')
         inc_color = '#ff4b4b' if is_korean else '#00cc96' # 한국: 빨강 / 해외: 초록
         dec_color = '#00b4d8' if is_korean else '#ff4b4b' # 한국: 파랑 / 해외: 빨강
@@ -171,19 +178,19 @@ if search_term:
             kpi2.metric(label="📈 전일 대비", value=f"{day_change:+,.0f} 원", delta=f"{day_change_pct:+.2f}%")
             kpi3.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
             kpi4.metric(label="⚖️ 52주 고/저", value=f"{int(high_52):,} / {int(low_52):,}")
-            mc_str = f"{int(market_cap / 100000000000):,}조 원" if market_cap else "N/A"
+            mc_str = f"{int(market_cap / 100000000000):,}조 원" if market_cap else "데이터 없음"
         else:
             kpi1.metric(label=f"💰 현재가 ({currency})", value=f"$ {price:,.2f}")
             kpi2.metric(label="📈 전일 대비", value=f"{day_change:+,.2f} $", delta=f"{day_change_pct:+.2f}%")
             kpi3.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
             kpi4.metric(label="⚖️ 52주 고/저", value=f"${high_52:,.2f} / ${low_52:,.2f}")
-            mc_str = f"$ {market_cap / 1000000000:,.2f}B" if market_cap else "N/A"
+            mc_str = f"$ {market_cap / 1000000000:,.2f}B" if market_cap else "데이터 없음"
 
-        # --- 🏢 2단: 뼈대 꿰뚫는 재무 지표 (깔끔하게 분리) ---
+        # --- 🏢 2단: 뼈대 꿰뚫는 재무 지표 ---
         with st.expander("🏢 기업 펀더멘털 (가치 지표)", expanded=True):
             f1, f2, f3 = st.columns(3)
             f1.metric("👑 시가총액 (Market Cap)", mc_str)
-            f2.metric("⏱️ PER (주가수익비율)", f"{pe_ratio:.2f} 배" if pe_ratio else "N/A")
+            f2.metric("⏱️ PER (주가수익비율)", f"{pe_ratio:.2f} 배" if pe_ratio else "데이터 없음")
             f3.metric("💸 배당수익률 (Dividend Yield)", f"{div_yield:.2f} %" if div_yield > 0 else "배당 없음")
 
         # --- 📈 차트 그리기 ---
@@ -214,7 +221,7 @@ if search_term:
             full_prices = [x[4] for x in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
-            rsi_full = calc_rsi(full_prices, 14) # 🔥 RSI 계산 완료!
+            rsi_full = calc_rsi(full_prices, 14) 
 
             if timeframe == "1일":
                 cutoff_date = datetime(clean_data[-1][0].year, clean_data[-1][0].month, clean_data[-1][0].day) if clean_data else datetime.now() - timedelta(days=1)
@@ -237,29 +244,29 @@ if search_term:
                     f_ma60.append(ma60_full[i])
                     f_rsi.append(rsi_full[i])
 
-            # 🔥 3단 분리 깔끔한 차트 레이아웃 생성!
+            # 🔥 3단 분리 차트
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.03)
             
-            # 1층: 캔들 차트 & 이평선
+            # 1층: 캔들
             fig.add_trace(go.Candlestick(x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
                                          increasing_line_color=inc_color, decreasing_line_color=dec_color, name='주가'), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
 
-            # 2층: 거래량 (캔들 색깔과 깔맞춤)
+            # 2층: 거래량
             vol_colors = [inc_color if i==0 or f_closes[i] >= f_closes[i-1] else dec_color for i in range(len(f_closes))]
             fig.add_trace(go.Bar(x=f_dates, y=f_vols, marker_color=vol_colors, name='거래량', opacity=0.5), row=2, col=1)
             
-            # 3층: RSI 지표
+            # 3층: RSI
             fig.add_trace(go.Scatter(x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', line=dict(color='#ab63fa', width=2)), row=3, col=1)
             fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1, annotation_text="과열(70)", annotation_position="top right")
             fig.add_hline(y=30, line_dash="dot", line_color="blue", row=3, col=1, annotation_text="침체(30)", annotation_position="bottom right")
             
             fig.update_layout(
                 title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
-                xaxis_rangeslider_visible=False, # 캔들 차트 하단 지저분한 슬라이더 제거
+                xaxis_rangeslider_visible=False,
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
-                showlegend=False # 깔끔함을 위해 레전드 숨김 (마우스 올리면 다 보임)
+                showlegend=False
             )
             
             if timeframe in ["1일", "1주일", "1달", "6달", "1년"]:
@@ -267,11 +274,11 @@ if search_term:
 
             st.plotly_chart(fig, use_container_width=True)
             
-            # --- 📰 4단: 최신 종목 뉴스 (클릭 시 이동) ---
+            # --- 📰 4단: 최신 종목 뉴스 ---
             st.markdown("### 📰 실시간 관련 뉴스 속보")
             news_items = search_res.get('news', [])
             if news_items:
-                for news in news_items[:4]: # 가장 최신 4개만 깔끔하게 출력
+                for news in news_items[:4]: 
                     title = news.get('title', '제목 없음')
                     publisher = news.get('publisher', '알 수 없음')
                     link = news.get('link', '#')
