@@ -90,17 +90,8 @@ if search_term:
             best_match = search_res['quotes'][0]
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
-        
-        # 🛠️ 1. 시가총액 (야후 7번 백도어 시도, 막히면 '보안 막힘' 처리)
-        market_cap = 0
-        try:
-            quote_url = f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-            quote_res = requests.get(quote_url, headers=headers, timeout=2).json()
-            market_cap = quote_res['quoteResponse']['result'][0].get('marketCap', 0)
-        except:
-            pass
             
-        # 🛠️ 2. 52주 최고/최저가 100% 강제 계산 엔진 (1년치 차트 훔쳐오기)
+        # 🛠️ 1. 52주 최고/최저가 100% 강제 계산 엔진
         high_52, low_52 = 0, 0
         try:
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -113,9 +104,9 @@ if search_term:
         except Exception as e:
             pass
 
-        # 3. 차트 및 거래량 데이터 가져오기
+        # 2. 차트 및 거래량 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
-        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
+        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "10y"}
         
         selected_range = range_map[timeframe]
         selected_interval = interval_map[timeframe]
@@ -133,9 +124,10 @@ if search_term:
         change = price - prev_close
         change_pct = (change / prev_close) * 100
         
+        # 🛠️ 달러($) 기호가 수학 공식으로 변환되지 않도록 'US$' 로 고정 방어!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
-        elif currency == "USD": curr_symbol = "$"
+        elif currency == "USD": curr_symbol = "US$" 
         elif currency == "EUR": curr_symbol = "€"
         elif currency == "TWD": curr_symbol = "NT$"
         elif currency == "HKD": curr_symbol = "HK$"
@@ -144,19 +136,29 @@ if search_term:
         sign = "-" if change < 0 else "+"
         abs_change = abs(change)
         
+        # 데이터 클렌징 (거래량 추출)
+        timestamps = result['timestamp']
+        close_prices = result['indicators']['quote'][0]['close']
+        volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices))
+        
+        dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
+        clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
+        
+        clean_prices = [x[1] for x in clean_data]
+        clean_volumes = [x[2] for x in clean_data]
+        today_volume = clean_volumes[-1] if clean_volumes else 0 # 당일 거래량 확보
+        
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 (비율 조정: 마지막 칸을 더 넓게!) ---
+        # --- 💰 상단 요약판 (시가총액 대신 당일 거래량 투입!) ---
         kpi1, kpi2, kpi3, kpi4 = st.columns([1.1, 1, 1.1, 1.4]) 
         
         if currency == 'KRW':
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "야후 보안 제한"
         else:
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "야후 보안 제한"
             
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
@@ -165,9 +167,10 @@ if search_term:
             except:
                 kpi2.metric(label="원화 환산가", value="계산 불가")
 
-        kpi3.metric(label="🏢 시가총액", value=mcap_str)
+        # 막힌 시가총액을 당일 거래량으로 폼나게 교체!
+        kpi3.metric(label="📊 당일 거래량", value=f"{int(today_volume):,} 주")
         
-        # 🛠️ 52주 최고/최저 다이어트 + 기호(단위) 완벽 부착!
+        # 🛠️ 52주 최고/최저 수학 기호 버그 해결!
         if high_52 and low_52:
             h_str = f"{curr_symbol}{int(high_52):,}" if high_52 > 1000 else f"{curr_symbol}{high_52:,.2f}"
             l_str = f"{curr_symbol}{int(low_52):,}" if low_52 > 1000 else f"{curr_symbol}{low_52:,.2f}"
@@ -178,13 +181,6 @@ if search_term:
         # --- 📈 차트 그리기 ---
         st.markdown("---")
         try:
-            timestamps = result['timestamp']
-            close_prices = result['indicators']['quote'][0]['close']
-            volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices))
-            
-            dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
-            clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
-            
             if timeframe == "3년":
                 cutoff_date = datetime.now() - timedelta(days=3*365)
                 clean_data = [(d, p, v) for d, p, v in clean_data if d >= cutoff_date]
