@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 🔥 CEO 전용 VIP 장부
+# 🔥 CEO 전용 VIP 장부 (쿠팡 영구 제명!)
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -16,8 +16,7 @@ vip_dict = {
     "소니 (일본)": "6758.T", "소니 (미국)": "SONY",
     "알리바바 (홍콩)": "9988.HK", "알리바바 (미국)": "BABA",
     "ASML (네덜란드)": "ASML.AS", "ASML (미국)": "ASML",
-    "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY",
-    "쿠팡": "CPNG"
+    "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
 def translate_to_english(text):
@@ -198,7 +197,6 @@ if search_term:
 
             for i in range(len(clean_data)):
                 if clean_data[i][0] >= cutoff_date:
-                    # 🔥 [핵심 패치] 문자로 강제 변환하지 않고 시간 원본 객체 그대로 사용!
                     filtered_dates.append(clean_data[i][0])
                     filtered_prices.append(clean_data[i][1])
                     filtered_volumes.append(clean_data[i][2])
@@ -206,19 +204,20 @@ if search_term:
                     filtered_ma60.append(ma60_full[i])
 
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
+            
+            fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3), connectgaps=True), secondary_y=False)
 
             if timeframe == "1달":
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
             elif timeframe in ["3달", "6달", "1년"]:
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
             elif timeframe in ["3년", "5년"]:
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
             elif timeframe == "10년":
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash'), connectgaps=True), secondary_y=False)
 
             vol_colors = ['#ff4b4b' if i > 0 and filtered_prices[i] < filtered_prices[i-1] else '#00cc96' for i in range(len(filtered_prices))]
             fig.add_trace(go.Bar(x=filtered_dates, y=filtered_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
@@ -233,7 +232,6 @@ if search_term:
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(filtered_volumes)*4 if filtered_volumes and max(filtered_volumes) > 0 else 100])
             
-            # 주말 갭 제거 (1주, 1달, 3달, 6달, 1년일 때만)
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
