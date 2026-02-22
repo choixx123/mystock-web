@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 🔥 CEO 전용 VIP 장부 (쿠팡 영구 제명!)
+# 🔥 CEO 전용 주요 종목 장부
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -39,24 +39,27 @@ def calc_ma(prices, window):
     return ma
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
-st.title("🌍 글로벌 주식 터미널 (Pro Max Version 🚀)")
+
+# 🔥 제목 깔끔하게 수정 완료!
+st.title("🌍 글로벌 주식 터미널")
 
 if "search_input" not in st.session_state:
     st.session_state.search_input = "테슬라"
 if "vip_dropdown" not in st.session_state:
-    st.session_state.vip_dropdown = "🔽 VIP 종목 선택"
+    st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 def apply_vip_search():
     selected = st.session_state.vip_dropdown
-    if selected != "🔽 VIP 종목 선택":
+    if selected != "🔽 주요 종목 선택":
         st.session_state.search_input = selected
-        st.session_state.vip_dropdown = "🔽 VIP 종목 선택" 
+        st.session_state.vip_dropdown = "🔽 주요 종목 선택" 
 
 col1, col2, col3 = st.columns([4, 2, 2])
 with col1:
     st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
 with col2:
-    st.selectbox("⭐ 빠른 검색", ["🔽 VIP 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
+    # 🔥 VIP 종목 -> 주요 종목으로 텍스트 변경
+    st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
     st.write("") 
     st.write("")
