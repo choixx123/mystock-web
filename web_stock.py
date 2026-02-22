@@ -91,34 +91,29 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
         
-        # 🛠️ 1. 시가총액 및 52주 데이터 (더 안정적인 v7 API 사용)
-        market_cap, high_52, low_52 = 0, 0, 0
+        # 🛠️ 1. 시가총액 (야후 7번 백도어 시도, 막히면 '보안 막힘' 처리)
+        market_cap = 0
         try:
             quote_url = f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-            quote_res = requests.get(quote_url, headers=headers).json()
-            if quote_res.get('quoteResponse') and quote_res['quoteResponse'].get('result'):
-                q_data = quote_res['quoteResponse']['result'][0]
-                market_cap = q_data.get('marketCap', 0)
-                high_52 = q_data.get('fiftyTwoWeekHigh', 0)
-                low_52 = q_data.get('fiftyTwoWeekLow', 0)
-        except Exception:
+            quote_res = requests.get(quote_url, headers=headers, timeout=2).json()
+            market_cap = quote_res['quoteResponse']['result'][0].get('marketCap', 0)
+        except:
             pass
             
-        # 🛠️ 플랜 B: 여전히 52주 고점이 없으면 1년치 차트 직접 뜯어 계산
-        if not high_52 or not low_52:
-            try:
-                backup_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
-                backup_res = requests.get(backup_url, headers=headers).json()
-                highs = backup_res['chart']['result'][0]['indicators']['quote'][0]['high']
-                lows = backup_res['chart']['result'][0]['indicators']['quote'][0]['low']
-                valid_highs = [h for h in highs if h is not None]
-                valid_lows = [l for l in lows if l is not None]
-                if valid_highs: high_52 = max(valid_highs)
-                if valid_lows: low_52 = min(valid_lows)
-            except:
-                pass
+        # 🛠️ 2. 52주 최고/최저가 100% 강제 계산 엔진 (1년치 차트 훔쳐오기)
+        high_52, low_52 = 0, 0
+        try:
+            url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
+            res_1y = requests.get(url_1y, headers=headers).json()
+            quotes_1y = res_1y['chart']['result'][0]['indicators']['quote'][0]
+            valid_highs = [h for h in quotes_1y['high'] if h is not None]
+            valid_lows = [l for l in quotes_1y['low'] if l is not None]
+            if valid_highs: high_52 = max(valid_highs)
+            if valid_lows: low_52 = min(valid_lows)
+        except Exception as e:
+            pass
 
-        # 2. 차트 및 거래량 데이터 가져오기
+        # 3. 차트 및 거래량 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
         interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
         
@@ -157,11 +152,11 @@ if search_term:
         if currency == 'KRW':
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "정보 제한됨"
+            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "야후 보안 제한"
         else:
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
-            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "정보 제한됨"
+            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "야후 보안 제한"
             
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
@@ -172,13 +167,13 @@ if search_term:
 
         kpi3.metric(label="🏢 시가총액", value=mcap_str)
         
-        # 52주 최고/최저 다이어트 (숫자가 크면 소수점 제거, 통화 기호 생략)
+        # 🛠️ 52주 최고/최저 다이어트 + 기호(단위) 완벽 부착!
         if high_52 and low_52:
-            h_str = f"{int(high_52):,}" if high_52 > 1000 else f"{high_52:,.2f}"
-            l_str = f"{int(low_52):,}" if low_52 > 1000 else f"{low_52:,.2f}"
+            h_str = f"{curr_symbol}{int(high_52):,}" if high_52 > 1000 else f"{curr_symbol}{high_52:,.2f}"
+            l_str = f"{curr_symbol}{int(low_52):,}" if low_52 > 1000 else f"{curr_symbol}{low_52:,.2f}"
             kpi4.metric(label="⚖️ 52주 최고/최저", value=f"{h_str} / {l_str}")
         else:
-            kpi4.metric(label="⚖️ 52주 최고/최저", value="정보 제한됨")
+            kpi4.metric(label="⚖️ 52주 최고/최저", value="계산 실패")
 
         # --- 📈 차트 그리기 ---
         st.markdown("---")
