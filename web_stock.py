@@ -6,7 +6,15 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 🔥 CEO 전용 주요 종목 장부
+# 🔥 가치 지표를 확실하게 가져오기 위한 yfinance 도입! (터미널에서 pip install yfinance 필요)
+try:
+    import yfinance as yf
+    YF_AVAILABLE = True
+except ImportError:
+    YF_AVAILABLE = False
+    st.warning("⚠️ 'yfinance' 라이브러리가 설치되지 않아 가치 지표가 제한될 수 있습니다. 터미널에 'pip install yfinance'를 입력하세요.")
+
+# 🔥 주요 종목 장부
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -20,150 +28,107 @@ vip_dict = {
 }
 
 def translate_to_english(text):
-    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()):
-        return text, True 
+    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): return text, True 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
-        res = requests.get(url, timeout=3) 
-        return res.json()[0][0][0], True
+        return requests.get(url, timeout=3).json()[0][0][0], True
+    except: return text, False 
+
+# 🔥 영어 뉴스 제목을 한국어로 자동 번역하는 엔진!
+def translate_to_korean(text):
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={text}"
+        return requests.get(url, timeout=3).json()[0][0][0]
+    except: return text
+
+# 🔥 실시간 원/달러 환율 가져오기
+def get_exchange_rate():
+    try:
+        ex_url = "https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?range=1d&interval=1d"
+        res = requests.get(ex_url, headers={'User-Agent': 'Mozilla/5.0'}).json()
+        return res['chart']['result'][0]['meta']['regularMarketPrice']
     except:
-        return text, False 
+        return 1350.0 # 에러 시 기본 환율
 
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
-        if i < window - 1:
-            ma.append(None)
-        else:
-            ma.append(sum(prices[i-window+1:i+1]) / window)
+        if i < window - 1: ma.append(None)
+        else: ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
 def calc_rsi(prices, period=14):
     rsi = [None] * len(prices)
-    if len(prices) < period + 1:
-        return rsi
+    if len(prices) < period + 1: return rsi
     gains, losses = [], []
     for i in range(1, len(prices)):
         delta = prices[i] - prices[i-1]
-        gains.append(max(delta, 0))
-        losses.append(abs(min(delta, 0)))
-    
+        gains.append(max(delta, 0)); losses.append(abs(min(delta, 0)))
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
-    
-    if avg_loss == 0:
-        rsi[period] = 100
-    else:
-        rs = avg_gain / avg_loss
-        rsi[period] = 100 - (100 / (1 + rs))
-        
+    if avg_loss == 0: rsi[period] = 100
+    else: rsi[period] = 100 - (100 / (1 + (avg_gain / avg_loss)))
     for i in range(period + 1, len(prices)):
         avg_gain = (avg_gain * (period - 1) + gains[i-1]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i-1]) / period
-        if avg_loss == 0:
-            rsi[i] = 100
-        else:
-            rs = avg_gain / avg_loss
-            rsi[i] = 100 - (100 / (1 + rs))
+        if avg_loss == 0: rsi[i] = 100
+        else: rsi[i] = 100 - (100 / (1 + (avg_gain / avg_loss)))
     return rsi
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 st.title("🌍 글로벌 주식 터미널")
 
-if "search_input" not in st.session_state:
-    st.session_state.search_input = "테슬라"
-if "vip_dropdown" not in st.session_state:
-    st.session_state.vip_dropdown = "🔽 주요 종목 선택"
+if "search_input" not in st.session_state: st.session_state.search_input = "테슬라"
+if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 def apply_vip_search():
-    selected = st.session_state.vip_dropdown
-    if selected != "🔽 주요 종목 선택":
-        st.session_state.search_input = selected
+    if st.session_state.vip_dropdown != "🔽 주요 종목 선택":
+        st.session_state.search_input = st.session_state.vip_dropdown
         st.session_state.vip_dropdown = "🔽 주요 종목 선택" 
 
 col1, col2, col3 = st.columns([4, 2, 2])
-with col1:
-    st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
-with col2:
-    st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
+with col1: st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
+with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
-    st.write("") 
-    st.write("")
+    st.write(""); st.write("")
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
 
 search_term = st.session_state.search_input
 
-# 🔥 차트 종류 및 조회 기간 선택 (나란히 배치)
 opt_col1, opt_col2 = st.columns([1, 2])
-with opt_col1:
-    chart_type = st.radio("📊 차트 종류", ["일반 선(Line) 차트", "전문가용 캔들(Candle) 차트"], horizontal=True)
-with opt_col2:
-    timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=3)
+with opt_col1: chart_type = st.radio("📊 차트 종류", ["일반 선(Line) 차트", "전문가용 캔들(Candle) 차트"], horizontal=True)
+with opt_col2: timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=3)
 
 if search_term:
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Encoding': 'gzip, deflate, br'
-    }
-    
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         original_name = search_term.strip()
         symbol = ""
         official_name = original_name
         
-        # 1. 심볼(티커) 확인
         if original_name in vip_dict:
             symbol = vip_dict[original_name]
         else:
             english_name, trans_success = translate_to_english(original_name)
-            if not trans_success:
-                st.error("⚠️ 번역 서버 지연. 코드를 직접 입력하세요.")
-                st.stop()
-                
             search_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={english_name}"
             search_res = requests.get(search_url, headers=headers).json()
-            
-            if not search_res.get('quotes') or len(search_res['quotes']) == 0:
-                st.error(f"❌ '{original_name}' 정보가 없습니다.")
-                st.stop()
-                
-            best_match = search_res['quotes'][0]
-            symbol = best_match['symbol']
-            official_name = best_match.get('shortname', english_name)
+            if not search_res.get('quotes'): st.error(f"❌ '{original_name}' 정보가 없습니다."); st.stop()
+            symbol = search_res['quotes'][0]['symbol']
+            official_name = search_res['quotes'][0].get('shortname', english_name)
 
-        # 🔥 2. 뉴스 데이터 강제 긁어오기 (버그 해결!)
-        news_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol}"
-        try:
-            news_data = requests.get(news_url, headers=headers, timeout=5).json()
-            news_items = news_data.get('news', [])
-        except:
-            news_items = []
+        news_items = search_res.get('news', [])
 
-        # 🔥 3. 가치 지표(재무) 가져오기 이중 우회 로직 (데이터 없음 해결!)
+        # 🔥 yfinance를 이용한 가치 지표 완벽 추출!
         market_cap, pe_ratio, div_yield = 0, None, 0
-        try:
-            # 첫 번째 시도 (일반 API)
-            q_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-            q_res = requests.get(q_url, headers=headers, timeout=5).json()
-            if 'quoteResponse' in q_res and q_res['quoteResponse'].get('result'):
-                quote_result = q_res['quoteResponse']['result'][0]
-                market_cap = quote_result.get('marketCap', 0)
-                pe_ratio = quote_result.get('trailingPE', None)
-                div_yield = quote_result.get('trailingAnnualDividendYield', 0) * 100
-            else:
-                # 실패 시 두 번째 시도 (우회 API)
-                fallback_url = f"https://query2.finance.yahoo.com/v10/finance/quoteModules/{symbol}?modules=summaryDetail"
-                fb_res = requests.get(fallback_url, headers=headers, timeout=5).json()
-                if 'quoteSummary' in fb_res and fb_res['quoteSummary'].get('result'):
-                    sd = fb_res['quoteSummary']['result'][0].get('summaryDetail', {})
-                    market_cap = sd.get('marketCap', {}).get('raw', 0)
-                    pe_ratio = sd.get('trailingPE', {}).get('raw', None)
-                    div_yield = sd.get('dividendYield', {}).get('raw', 0) * 100
-        except Exception as e:
-            pass # 모두 실패해도 프로그램은 죽지 않는다!
+        if YF_AVAILABLE:
+            try:
+                info = yf.Ticker(symbol).info
+                market_cap = info.get('marketCap', 0)
+                pe_ratio = info.get('trailingPE', None)
+                div_yield = info.get('dividendYield', 0)
+                if div_yield: div_yield *= 100
+            except: pass
 
-        # 4. 주가 및 기본 정보 가져오기
         url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
         res_1y_data = requests.get(url_1y, headers=headers).json()
         
@@ -183,34 +148,35 @@ if search_term:
             
             day_change = price - prev_close
             day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
-            
             high_52 = max(valid_highs) if valid_highs else price
             low_52 = min(valid_lows) if valid_lows else price
         else:
-            st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
-            st.stop()
+            st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다."); st.stop()
 
-        # 국가별 색상 로직 
         is_korean = symbol.endswith('.KS') or symbol.endswith('.KQ')
-        inc_color = '#ff4b4b' if is_korean else '#00cc96' # 한국: 빨강 / 해외: 초록
-        dec_color = '#00b4d8' if is_korean else '#ff4b4b' # 한국: 파랑 / 해외: 빨강
+        inc_color = '#ff4b4b' if is_korean else '#00cc96'
+        dec_color = '#00b4d8' if is_korean else '#ff4b4b'
 
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 1단: 가격 및 거래량 요약판 ---
+        # --- 💰 1단: 가격 및 거래량 요약판 (환율 계산 및 $ 버그 수정) ---
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        exchange_rate = get_exchange_rate()
+        
         if currency == "KRW":
-            kpi1.metric(label=f"💰 현재가", value=f"{int(price):,} 원")
+            kpi1.metric(label="💰 현재가", value=f"{int(price):,} 원")
             kpi2.metric(label="📈 전일 대비", value=f"{day_change:+,.0f} 원", delta=f"{day_change_pct:+.2f}%")
             kpi3.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
-            kpi4.metric(label="⚖️ 52주 고/저", value=f"{int(high_52):,} / {int(low_52):,}")
+            kpi4.metric(label="⚖️ 52주 최고/최저", value=f"{int(high_52):,} 원 / {int(low_52):,} 원")
             mc_str = f"{int(market_cap / 100000000000):,}조 원" if market_cap else "데이터 없음"
         else:
-            kpi1.metric(label=f"💰 현재가 ({currency})", value=f"$ {price:,.2f}")
-            kpi2.metric(label="📈 전일 대비", value=f"{day_change:+,.2f} $", delta=f"{day_change_pct:+.2f}%")
+            krw_price = int(price * exchange_rate)
+            # $ 기호가 Streamlit에서 수학 공식으로 인식되지 않도록 USD 문자로 대체!
+            kpi1.metric(label=f"💰 현재가 ({currency})", value=f"{price:,.2f} USD", delta=f"약 {krw_price:,} 원", delta_color="off")
+            kpi2.metric(label="📈 전일 대비", value=f"{day_change:+,.2f} USD", delta=f"{day_change_pct:+.2f}%")
             kpi3.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
-            kpi4.metric(label="⚖️ 52주 고/저", value=f"${high_52:,.2f} / ${low_52:,.2f}")
-            mc_str = f"$ {market_cap / 1000000000:,.2f}B" if market_cap else "데이터 없음"
+            kpi4.metric(label="⚖️ 52주 최고/최저", value=f"{high_52:,.2f} USD / {low_52:,.2f} USD")
+            mc_str = f"{market_cap / 1000000000:,.2f}B USD" if market_cap else "데이터 없음"
 
         # --- 🏢 2단: 뼈대 꿰뚫는 재무 지표 ---
         with st.expander("🏢 기업 펀더멘털 (가치 지표)", expanded=True):
@@ -219,7 +185,7 @@ if search_term:
             f2.metric("⏱️ PER (주가수익비율)", f"{pe_ratio:.2f} 배" if pe_ratio else "데이터 없음")
             f3.metric("💸 배당수익률 (Dividend Yield)", f"{div_yield:.2f} %" if div_yield > 0 else "배당 없음")
 
-        # --- 📈 차트 그리기 ---
+        # --- 📈 3단: 차트 그리기 ---
         st.markdown("---")
         try:
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
@@ -235,87 +201,58 @@ if search_term:
             timestamps = result['timestamp']
             quote = result['indicators']['quote'][0]
             
-            open_p = quote.get('open', [0]*len(timestamps))
-            high_p = quote.get('high', [0]*len(timestamps))
-            low_p = quote.get('low', [0]*len(timestamps))
-            close_p = quote['close']
-            volumes = quote.get('volume', [0]*len(timestamps))
+            open_p, high_p, low_p = quote.get('open', [0]*len(timestamps)), quote.get('high', [0]*len(timestamps)), quote.get('low', [0]*len(timestamps))
+            close_p, volumes = quote['close'], quote.get('volume', [0]*len(timestamps))
             
             dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
             clean_data = [(d, o, h, l, c, v if v else 0) for d, o, h, l, c, v in zip(dt_objects, open_p, high_p, low_p, close_p, volumes) if c is not None]
 
             full_prices = [x[4] for x in clean_data]
-            ma20_full = calc_ma(full_prices, 20)
-            ma60_full = calc_ma(full_prices, 60)
-            rsi_full = calc_rsi(full_prices, 14) 
+            ma20_full, ma60_full, rsi_full = calc_ma(full_prices, 20), calc_ma(full_prices, 60), calc_rsi(full_prices, 14)
 
-            if timeframe == "1일":
-                cutoff_date = datetime(clean_data[-1][0].year, clean_data[-1][0].month, clean_data[-1][0].day) if clean_data else datetime.now() - timedelta(days=1)
-            else:
-                cutoff_map = {"1주일": 7, "1달": 30, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
-                cutoff_date = datetime.now() - timedelta(days=cutoff_map[timeframe])
+            cutoff_date = datetime.now() - timedelta(days={"1일":1, "1주일":7, "1달":30, "6달":180, "1년":365, "3년":365*3, "5년":365*5, "10년":365*10}[timeframe]) if timeframe != "1일" else datetime(clean_data[-1][0].year, clean_data[-1][0].month, clean_data[-1][0].day)
 
-            f_dates, f_opens, f_highs, f_lows, f_closes, f_vols = [], [], [], [], [], []
-            f_ma20, f_ma60, f_rsi = [], [], []
-
+            f_dates, f_opens, f_highs, f_lows, f_closes, f_vols, f_ma20, f_ma60, f_rsi = [], [], [], [], [], [], [], [], []
             for i in range(len(clean_data)):
                 if clean_data[i][0] >= cutoff_date:
-                    f_dates.append(clean_data[i][0])
-                    f_opens.append(clean_data[i][1])
-                    f_highs.append(clean_data[i][2])
-                    f_lows.append(clean_data[i][3])
-                    f_closes.append(clean_data[i][4])
-                    f_vols.append(clean_data[i][5])
-                    f_ma20.append(ma20_full[i])
-                    f_ma60.append(ma60_full[i])
-                    f_rsi.append(rsi_full[i])
+                    f_dates.append(clean_data[i][0]); f_opens.append(clean_data[i][1]); f_highs.append(clean_data[i][2])
+                    f_lows.append(clean_data[i][3]); f_closes.append(clean_data[i][4]); f_vols.append(clean_data[i][5])
+                    f_ma20.append(ma20_full[i]); f_ma60.append(ma60_full[i]); f_rsi.append(rsi_full[i])
 
-            # 🔥 3단 분리 차트 (선차트 / 캔들차트 선택 기능 적용)
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.03)
             
-            # 1층: 주가 차트 (CEO의 선택에 따라 렌더링!)
             if chart_type == "일반 선(Line) 차트":
                 fig.add_trace(go.Scatter(x=f_dates, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=2.5)), row=1, col=1)
             else:
-                fig.add_trace(go.Candlestick(x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
-                                             increasing_line_color=inc_color, decreasing_line_color=dec_color, name='주가'), row=1, col=1)
+                fig.add_trace(go.Candlestick(x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, increasing_line_color=inc_color, decreasing_line_color=dec_color, name='주가'), row=1, col=1)
                 
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
 
-            # 2층: 거래량
             vol_colors = [inc_color if i==0 or f_closes[i] >= f_closes[i-1] else dec_color for i in range(len(f_closes))]
             fig.add_trace(go.Bar(x=f_dates, y=f_vols, marker_color=vol_colors, name='거래량', opacity=0.5), row=2, col=1)
             
-            # 3층: RSI
             fig.add_trace(go.Scatter(x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', line=dict(color='#ab63fa', width=2)), row=3, col=1)
-            fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1, annotation_text="과열(70)", annotation_position="top right")
-            fig.add_hline(y=30, line_dash="dot", line_color="blue", row=3, col=1, annotation_text="침체(30)", annotation_position="bottom right")
+            fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1, annotation_text="과열(70)")
+            fig.add_hline(y=30, line_dash="dot", line_color="blue", row=3, col=1, annotation_text="침체(30)")
             
-            fig.update_layout(
-                title=f"📈 {official_name} 분석 차트 ({timeframe} / {chart_type})",
-                xaxis_rangeslider_visible=False,
-                hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
-                showlegend=False
-            )
-            
-            if timeframe in ["1일", "1주일", "1달", "6달", "1년"]:
-                fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-
+            fig.update_layout(title=f"📈 {official_name} 분석 차트", xaxis_rangeslider_visible=False, hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
+            if timeframe in ["1일", "1주일", "1달", "6달", "1년"]: fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
             st.plotly_chart(fig, use_container_width=True)
             
-            # --- 📰 4단: 최신 종목 뉴스 ---
-            st.markdown("### 📰 실시간 관련 뉴스 속보")
+            # --- 📰 4단: 한국어 자동 번역 최신 뉴스 ---
+            st.markdown("### 📰 실시간 관련 뉴스 (한국어 번역)")
             if news_items:
                 for news in news_items[:4]: 
-                    title = news.get('title', '제목 없음')
+                    title_en = news.get('title', '제목 없음')
+                    title_ko = translate_to_korean(title_en) # 한국어로 번역!
                     publisher = news.get('publisher', '알 수 없음')
                     link = news.get('link', '#')
                     
                     st.markdown(f"""
                     <div style="padding: 10px; border-left: 5px solid #00b4d8; background-color: rgba(0, 180, 216, 0.1); margin-bottom: 10px; border-radius: 5px;">
-                        <h5 style="margin: 0;"><a href="{link}" target="_blank" style="text-decoration: none; color: inherit;">🔗 {title}</a></h5>
-                        <p style="margin: 5px 0 0 0; font-size: 0.8em; color: gray;">출처: {publisher}</p>
+                        <h5 style="margin: 0;"><a href="{link}" target="_blank" style="text-decoration: none; color: inherit;">🔗 {title_ko}</a></h5>
+                        <p style="margin: 5px 0 0 0; font-size: 0.8em; color: gray;">원본 출처: {publisher} (번역됨)</p>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -323,16 +260,14 @@ if search_term:
 
             if live_mode:
                 if "live_on" not in st.session_state:
-                    st.toast("🔴 라이브 모드 ON: 주가 및 뉴스 실시간 갱신 중!", icon="⚡")
+                    st.toast("🔴 라이브 모드 ON: 주가 실시간 갱신 중!", icon="⚡")
                     st.session_state.live_on = True 
                 time.sleep(5)
                 st.rerun()
             else:
                 st.session_state.pop("live_on", None) 
                 
-        except Exception as e:
-            st.error(f"차트 렌더링 에러: {e}")
+        except Exception as e: st.error(f"차트 렌더링 에러: {e}")
             
-    except Exception as e:
-        st.error(f"❌ 시스템 에러 발생: {e}")
-        
+    except Exception as e: st.error(f"❌ 시스템 에러 발생: {e}")
+    
