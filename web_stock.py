@@ -104,9 +104,9 @@ if search_term:
         except Exception as e:
             pass
 
-        # 2. 차트 및 거래량 데이터 가져오기 (10년 오타 수정 완료!)
+        # 2. 차트 및 거래량 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
-        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"} # 10y -> 1mo 로 수정!
+        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
         
         selected_range = range_map[timeframe]
         selected_interval = interval_map[timeframe]
@@ -124,12 +124,13 @@ if search_term:
         change = price - prev_close
         change_pct = (change / prev_close) * 100
         
+        # 🛠️ 수학 공식 폰트 깨짐 방지: $ 기호 앞에 역슬래시(\)를 붙여 단순 텍스트로 인식하게 만듦!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
-        elif currency == "USD": curr_symbol = "US$" 
+        elif currency == "USD": curr_symbol = "\\$" 
         elif currency == "EUR": curr_symbol = "€"
-        elif currency == "TWD": curr_symbol = "NT$"
-        elif currency == "HKD": curr_symbol = "HK$"
+        elif currency == "TWD": curr_symbol = "NT\\$"
+        elif currency == "HKD": curr_symbol = "HK\\$"
         else: curr_symbol = currency
         
         sign = "-" if change < 0 else "+"
@@ -185,7 +186,7 @@ if search_term:
             if timeframe == "1주일":
                 clean_dates = [x[0].strftime('%Y-%m-%d %H:%M') for x in clean_data]
             elif timeframe in ["10년"]:
-                clean_dates = [x[0].strftime('%Y-%m') for x in clean_data] # 10년은 월 단위로 깔끔하게!
+                clean_dates = [x[0].strftime('%Y-%m') for x in clean_data]
             else:
                 clean_dates = [x[0].strftime('%Y-%m-%d') for x in clean_data]
                 
@@ -233,3 +234,4 @@ if search_term:
             
     except Exception as e:
         st.error(f"❌ 시스템 에러 발생: {e}")
+        
