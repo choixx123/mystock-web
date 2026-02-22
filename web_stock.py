@@ -1,4 +1,4 @@
-\import streamlit as st
+import streamlit as st
 import requests
 import re
 import time
@@ -172,4 +172,5 @@ if search_term:
             
     except Exception as e:
         st.error(f"❌ 시스템 에러 발생: {e}")
+
         
