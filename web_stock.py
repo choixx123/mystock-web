@@ -112,14 +112,22 @@ if search_term:
                 else:
                     prev_close = price
             
+            # 🛠️ [패치 적용] 실시간 거래량 지속 갱신!
             today_volume = meta.get('regularMarketVolume', 0)
             currency = meta.get('currency', 'USD')
             
             day_change = price - prev_close
             day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
             
-            high_52 = max(valid_highs) if valid_highs else 0
-            low_52 = min(valid_lows) if valid_lows else 0
+            # 🛠️ [패치 적용] 과거 52주 최고/최저 데이터 추출 후, 현재 '라이브 가격'과 무한 배틀!
+            historical_high = max(valid_highs) if valid_highs else 0
+            historical_low = min(valid_lows) if valid_lows else 0
+            
+            # 라이브 가격이 기존 최고가를 뚫으면 즉시 반영!
+            high_52 = max(historical_high, price)
+            # 라이브 가격이 기존 최저가를 뚫으면 즉시 반영!
+            low_52 = min(historical_low, price) if historical_low > 0 else price
+            
         else:
             st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
@@ -210,7 +218,6 @@ if search_term:
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
 
-            # 🛠️ [패치 적용] 1달 차트에서는 60일선 제거, 그리고 전부 다시 점선(dash='dot')으로 복구!
             if timeframe == "1달":
                 fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
             elif timeframe in ["3달", "6달", "1년"]:
@@ -243,7 +250,7 @@ if search_term:
             
             if live_mode:
                 if "live_on" not in st.session_state:
-                    st.toast("🔴 라이브 모드 ON: 5초마다 자동 갱신됩니다!", icon="⚡")
+                    st.toast("🔴 라이브 모드 ON: 주가, 거래량, 최고/최저가 실시간 갱신 중!", icon="⚡")
                     st.session_state.live_on = True 
                 time.sleep(5)
                 st.rerun()
