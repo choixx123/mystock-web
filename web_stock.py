@@ -91,7 +91,6 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
 
-        # 1년치 차트 데이터에서 요약판 데이터 추출
         url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
         res_1y_data = requests.get(url_1y, headers=headers).json()
         
@@ -106,11 +105,10 @@ if search_term:
             
             price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
             
-            # 🛠️ [버그 수정] 1년 전 종가(chartPreviousClose) 대신 진짜 어제 종가를 차트 배열에서 강제 추출!
             prev_close = meta.get('previousClose')
-            if not prev_close: # 야후가 어제 종가를 빈칸으로 줬을 때
+            if not prev_close:
                 if len(valid_closes) >= 2:
-                    prev_close = valid_closes[-2] # 차트 데이터의 뒤에서 두 번째(진짜 어제)
+                    prev_close = valid_closes[-2]
                 else:
                     prev_close = price
             
@@ -126,44 +124,53 @@ if search_term:
             st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
 
-        # 🛠️ [버그 수정] 단위를 명확하게! 기호와 콤마(,+,.0f) 깔끔하게 적용
+        # 🛠️ [해결] 글자를 최대한 짧게 압축해서 ... 방지!
         if currency == "KRW":
-            curr_symbol = "₩"
             price_str = f"{int(price):,} 원"
-            change_val_str = f"{day_change:+,.0f} 원" # 콤마 적용 완료!
-            high52_str = f"{int(high_52):,} 원"
-            low52_str = f"{int(low_52):,} 원"
+            change_val_str = f"{day_change:+,.0f} 원"
+            highlow_52_str = f"{int(high_52):,} / {int(low_52):,} 원" # 중복 단위 제거
         else:
             curr_symbol = "＄"
             price_str = f"{curr_symbol} {price:,.2f}"
-            change_val_str = f"{day_change:+,.2f} {curr_symbol}" # 콤마 적용 완료!
-            high52_str = f"{curr_symbol} {high_52:,.2f}"
-            low52_str = f"{curr_symbol} {low_52:,.2f}"
+            change_val_str = f"{day_change:+,.2f} {curr_symbol}" 
+            highlow_52_str = f"{curr_symbol}{high_52:,.2f} / {curr_symbol}{low_52:,.2f}" # 공백 최소화
 
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 ---
-        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.1, 1.2, 1.1, 1.3, 1.5]) 
-        
-        kpi1.metric(label=f"💰 현재가 ({currency})", value=price_str)
-        kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
-        
-        if currency != 'KRW':
+        # --- 💰 상단 요약판 (스마트 레이아웃) ---
+        if currency == "KRW":
+            # 한국 주식: 원화 환산가 컬럼 완전 삭제, 4칸으로 넓게 배분! (마지막 칸 크기 2.0으로 초대형 확장)
+            kpi1, kpi2, kpi4, kpi5 = st.columns([1.1, 1.3, 1.3, 2.0]) 
+            
+            kpi1.metric(label=f"💰 현재가", value=price_str)
+            kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
+            kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
+            
+            if high_52 and low_52:
+                kpi5.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str)
+            else:
+                kpi5.metric(label="⚖️ 52주 최고/최저", value="데이터 없음")
+                
+        else:
+            # 해외 주식: 원화 환산가 포함 5칸 배분
+            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.0, 1.2, 1.2, 1.2, 1.8]) 
+            
+            kpi1.metric(label=f"💰 현재가 ({currency})", value=price_str)
+            kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
+            
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
                 ex_rate = requests.get(ex_url, headers=headers).json()['chart']['result'][0]['meta']['regularMarketPrice']
                 kpi3.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
             except:
                 kpi3.metric(label="🇰🇷 원화 환산가", value="계산 불가")
-        else:
-            kpi3.metric(label="🇰🇷 원화 환산가", value="-")
 
-        kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
-        
-        if high_52 and low_52:
-            kpi5.metric(label="⚖️ 52주 최고/최저", value=f"{high52_str} / {low52_str}")
-        else:
-            kpi5.metric(label="⚖️ 52주 최고/최저", value="데이터 없음")
+            kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
+            
+            if high_52 and low_52:
+                kpi5.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str)
+            else:
+                kpi5.metric(label="⚖️ 52주 최고/최저", value="데이터 없음")
 
         # --- 📈 차트 그리기 ---
         st.markdown("---")
