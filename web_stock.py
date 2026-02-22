@@ -104,7 +104,7 @@ if search_term:
         except Exception as e:
             pass
 
-        # 2. 차트 및 거래량 데이터 가져오기
+        # 2. 차트 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
         interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
         
@@ -117,14 +117,16 @@ if search_term:
         result = chart_res['chart']['result'][0]
         meta = result['meta']
         
-        price = meta['regularMarketPrice']
-        prev_close = meta['chartPreviousClose']
-        currency = meta['currency']
+        price = meta.get('regularMarketPrice', 0)
+        prev_close = meta.get('chartPreviousClose', price)
+        currency = meta.get('currency', 'USD')
+        
+        # 🛠️ [해결] 차트 마지막 값이 아니라, '진짜 당일 누적 거래량'을 메타데이터에서 강제로 뽑아옴!
+        today_volume = meta.get('regularMarketVolume', 0)
         
         change = price - prev_close
-        change_pct = (change / prev_close) * 100
+        change_pct = (change / prev_close) * 100 if prev_close else 0
         
-        # 🛠️ 수학 공식 버그 완벽 무력화: 진짜 '$' 대신 컴퓨터가 글자로 인식하는 특수문자 전각 '＄' 사용!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
         elif currency == "USD": curr_symbol = "＄" 
@@ -136,17 +138,12 @@ if search_term:
         sign = "-" if change < 0 else "+"
         abs_change = abs(change)
         
-        # 데이터 클렌징 (거래량 추출)
         timestamps = result['timestamp']
         close_prices = result['indicators']['quote'][0]['close']
         volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices))
         
         dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
         clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
-        
-        clean_prices = [x[1] for x in clean_data]
-        clean_volumes = [x[2] for x in clean_data]
-        today_volume = clean_volumes[-1] if clean_volumes else 0 
         
         st.subheader(f"{official_name} ({symbol})")
         
@@ -157,7 +154,6 @@ if search_term:
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
         else:
-            # ＄ 기호를 아무리 써도 에러 없이 화면에 상승률이 무조건 나온다!
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
             
@@ -168,9 +164,9 @@ if search_term:
             except:
                 kpi2.metric(label="원화 환산가", value="계산 불가")
 
-        kpi3.metric(label="📊 당일 거래량", value=f"{int(today_volume):,} 주")
+        # 이제 기간을 바꿔도 이 값은 무조건 '오늘의 진짜 거래량'으로 고정된다!
+        kpi3.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
         
-        # 52주 최고/최저에도 ＄ 기호를 넣어 깔끔하게 폰트 통일!
         if high_52 and low_52:
             h_str = f"{curr_symbol}{int(high_52):,}" if high_52 > 1000 else f"{curr_symbol}{high_52:,.2f}"
             l_str = f"{curr_symbol}{int(low_52):,}" if low_52 > 1000 else f"{curr_symbol}{low_52:,.2f}"
@@ -195,14 +191,26 @@ if search_term:
             clean_prices = [x[1] for x in clean_data]
             clean_volumes = [x[2] for x in clean_data]
             
-            ma20 = calc_ma(clean_prices, 20)
-            ma60 = calc_ma(clean_prices, 60)
-
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            
             fig.add_trace(go.Scatter(x=clean_dates, y=clean_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
-            fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-            fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+
+            # 🛠️ [해결] 기간별로 이평선(Moving Average)을 스마트하게 전환!
+            if timeframe in ["1달", "3달", "6달", "1년"]:
+                ma20 = calc_ma(clean_prices, 20)
+                ma60 = calc_ma(clean_prices, 60)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+            elif timeframe in ["3년", "5년"]:
+                ma20 = calc_ma(clean_prices, 20)
+                ma60 = calc_ma(clean_prices, 60)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+            elif timeframe == "10년":
+                ma20 = calc_ma(clean_prices, 20)
+                ma60 = calc_ma(clean_prices, 60)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+            # 1주일 조회 시에는 이평선을 그리지 않음!
 
             vol_colors = ['#ff4b4b' if i > 0 and clean_prices[i] < clean_prices[i-1] else '#00cc96' for i in range(len(clean_prices))]
             fig.add_trace(go.Bar(x=clean_dates, y=clean_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
