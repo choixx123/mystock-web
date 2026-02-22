@@ -5,8 +5,8 @@ import re
 # 🔥 CEO 전용 VIP 장부
 vip_dict = {
     "현대차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
-    "루이비통": "MC.PA", "엔비": "NVDA", "삼전": "005930.KS",
-    "테슬라": "TSLA", "애플": "AAPL", "마소": "MSFT"
+    "루이비통": "MC.PA", "엔비디아": "NVDA", "삼성전자": "005930.KS",
+    "테슬라": "TSLA", "애플": "AAPL", "마이크로소프트": "MSFT"
 }
 
 def translate_to_english(text):
@@ -26,7 +26,7 @@ st.title("🌍 글로벌 주식 터미널 (Web)")
 st.write("스마트폰, 태블릿, PC 어디서든 전 세계 주가를 실시간으로 확인하세요.")
 
 # 검색창 만들기
-search_term = st.text_input("🔍 종목명 또는 티커(기호)를 입력하세요 (예: 테슬라, NVDA, 삼전)", "")
+search_term = st.text_input("🔍 종목명 또는 티커(기호)를 입력하세요 (예: 테슬라, NVDA, 삼성전자)", "")
 
 # 버튼 누르면 실행될 로직
 if st.button("🚀 실시간 주가 조회", use_container_width=True):
@@ -107,4 +107,3 @@ if st.button("🚀 실시간 주가 조회", use_container_width=True):
                 
             except Exception as e:
                 st.error(f"❌ 시스템 에러 발생: {e}")
-                
