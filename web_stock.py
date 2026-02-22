@@ -91,21 +91,31 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
 
-        # 🛠️ 1. [완벽 독립] 무조건 '오늘 실시간' 데이터만 핀셋으로 뽑아오는 전용 통신망!
-        quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-        quote_res = requests.get(quote_url, headers=headers).json()
+        # 🛠️ [해결] 야후가 안 막는 '1년치 차트 API'에서 요약판 데이터만 몰래 빼오기! (절대 막힐 일 없음)
+        url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
+        res_1y_data = requests.get(url_1y, headers=headers).json()
         
-        if 'quoteResponse' in quote_res and quote_res['quoteResponse']['result']:
-            q_data = quote_res['quoteResponse']['result'][0]
-            price = q_data.get('regularMarketPrice', 0)
-            day_change = q_data.get('regularMarketChange', 0)
-            day_change_pct = q_data.get('regularMarketChangePercent', 0)
-            today_volume = q_data.get('regularMarketVolume', 0)
-            high_52 = q_data.get('fiftyTwoWeekHigh', 0)
-            low_52 = q_data.get('fiftyTwoWeekLow', 0)
-            currency = q_data.get('currency', 'USD')
+        if 'chart' in res_1y_data and res_1y_data['chart']['result']:
+            result_1y = res_1y_data['chart']['result'][0]
+            meta = result_1y['meta']
+            
+            price = meta.get('regularMarketPrice', 0)
+            # 진짜 어제 종가를 확실하게 가져옴
+            prev_close = meta.get('previousClose', meta.get('chartPreviousClose', price))
+            today_volume = meta.get('regularMarketVolume', 0)
+            currency = meta.get('currency', 'USD')
+            
+            day_change = price - prev_close
+            day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
+            
+            # 52주 최고 최저 구하기
+            quotes_1y = result_1y['indicators']['quote'][0]
+            valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
+            valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
+            high_52 = max(valid_highs) if valid_highs else 0
+            low_52 = min(valid_lows) if valid_lows else 0
         else:
-            st.error("종목 데이터를 불러올 수 없습니다.")
+            st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
 
         # 단위를 명확하게! 기호와 콤마(,) 깔끔하게 적용
@@ -124,13 +134,13 @@ if search_term:
 
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 (5칸으로 세분화!) ---
+        # --- 💰 상단 요약판 (조회 기간에 절대 흔들리지 않는 바위 같은 녀석!) ---
         kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.1, 1.2, 1.1, 1.3, 1.5]) 
         
-        # 첫 번째 칸: 오직 '현재가'만 깔끔하게 표시 (헷갈리는 아래 숫자 제거)
+        # 첫 번째 칸: 오직 '현재가'만 깔끔하게
         kpi1.metric(label=f"💰 현재가 ({currency})", value=price_str)
         
-        # 두 번째 칸: CEO가 원했던 '전일 대비 상승률' 독립 부스!
+        # 두 번째 칸: 전일 대비 상승률 전용 VIP 부스!
         kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
         
         # 세 번째 칸: 원화 환산
@@ -147,13 +157,13 @@ if search_term:
         # 네 번째 칸: 당일 총 거래량 (단위: 주, 콤마 적용)
         kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
         
-        # 다섯 번째 칸: 52주 최고/최저 (단위 적용)
+        # 다섯 번째 칸: 52주 최고/최저
         if high_52 and low_52:
             kpi5.metric(label="⚖️ 52주 최고/최저", value=f"{high52_str} / {low52_str}")
         else:
             kpi5.metric(label="⚖️ 52주 최고/최저", value="데이터 없음")
 
-        # --- 📈 차트 그리기 (여기서부터는 차트 전용 데이터) ---
+        # --- 📈 차트 그리기 (기간 선택에 따라 변하는 건 오직 이 아래부터!) ---
         st.markdown("---")
         try:
             range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
