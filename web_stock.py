@@ -4,8 +4,9 @@ import re
 import time
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots # 📊 차트 합성용 도구 추가!
 
-# 🔥 CEO 전용 VIP 장부 (글로벌 거인들 본진/미국섭 대거 추가!)
+# 🔥 CEO 전용 VIP 장부 (글로벌 거인들 듀얼 상장 완벽 세팅)
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -28,8 +29,18 @@ def translate_to_english(text):
     except:
         return text, False 
 
+# 📈 이동평균선(MA) 계산 엔진
+def calc_ma(prices, window):
+    ma = []
+    for i in range(len(prices)):
+        if i < window - 1:
+            ma.append(None)
+        else:
+            ma.append(sum(prices[i-window+1:i+1]) / window)
+    return ma
+
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
-st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
+st.title("🌍 글로벌 주식 터미널 (Pro Max Version 🚀)")
 
 if "search_input" not in st.session_state:
     st.session_state.search_input = "테슬라"
@@ -81,6 +92,17 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
         
+        # 1. 시가총액 및 52주 데이터 가져오기 (신규 기능!)
+        quote_url = f"https://query1.finance.yahoo.com/v11/finance/quote?symbols={symbol}"
+        try:
+            quote_data = requests.get(quote_url, headers=headers).json()['quoteResponse']['result'][0]
+            market_cap = quote_data.get('marketCap', 0)
+            high_52 = quote_data.get('fiftyTwoWeekHigh', 0)
+            low_52 = quote_data.get('fiftyTwoWeekLow', 0)
+        except:
+            market_cap, high_52, low_52 = 0, 0, 0
+
+        # 2. 차트 및 거래량 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
         interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
         
@@ -100,7 +122,6 @@ if search_term:
         change = price - prev_close
         change_pct = (change / prev_close) * 100
         
-        # 🔥 대만(TWD), 홍콩(HKD) 등 다양한 화폐 기호 완벽 지원!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
         elif currency == "USD": curr_symbol = "$"
@@ -114,33 +135,46 @@ if search_term:
         
         st.subheader(f"{official_name} ({symbol})")
         
+        # --- 💰 상단 가격 및 시총 요약판 ---
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
         if currency == 'KRW':
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
-            st.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
+            kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
+            mcap_str = f"{market_cap / 1000000000000:,.1f}조 원" if market_cap else "정보 없음"
         else:
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
-            col1, col2 = st.columns(2)
-            col1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
+            kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
+            mcap_str = f"{market_cap / 1000000000:,.2f}B {curr_symbol}" if market_cap else "정보 없음"
+            
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
-                ex_res = requests.get(ex_url, headers=headers).json()
-                ex_rate = ex_res['chart']['result'][0]['meta']['regularMarketPrice']
-                krw_price = int(price * ex_rate)
-                col2.metric(label="원화 환산가 (KRW)", value=f"약 {krw_price:,} 원")
+                ex_rate = requests.get(ex_url, headers=headers).json()['chart']['result'][0]['meta']['regularMarketPrice']
+                kpi2.metric(label="원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
             except:
-                pass
+                kpi2.metric(label="원화 환산가", value="계산 불가")
+
+        kpi3.metric(label="🏢 시가총액 (기업 덩치)", value=mcap_str)
         
-        # --- 📈 차트 그리기 ---
+        if high_52 and low_52:
+            kpi4.metric(label="⚖️ 52주 최고 / 최저", value=f"{curr_symbol}{high_52:,.1f} / {curr_symbol}{low_52:,.1f}")
+        else:
+            kpi4.metric(label="⚖️ 52주 최고 / 최저", value="정보 없음")
+
+        # --- 📈 차트 그리기 (가격 + 이평선 + 거래량) ---
         st.markdown("---")
         try:
             timestamps = result['timestamp']
             close_prices = result['indicators']['quote'][0]['close']
+            volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices)) # 거래량 추가!
+            
             dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
-            clean_data = [(d, p) for d, p in zip(dt_objects, close_prices) if p is not None]
+            # 빈 데이터 필터링 (가격, 거래량 동시 처리)
+            clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
             
             if timeframe == "3년":
                 cutoff_date = datetime.now() - timedelta(days=3*365)
-                clean_data = [(d, p) for d, p in clean_data if d >= cutoff_date]
+                clean_data = [(d, p, v) for d, p, v in clean_data if d >= cutoff_date]
             
             if timeframe == "1주일":
                 clean_dates = [x[0].strftime('%Y-%m-%d %H:%M') for x in clean_data]
@@ -148,26 +182,41 @@ if search_term:
                 clean_dates = [x[0].strftime('%Y-%m-%d') for x in clean_data]
                 
             clean_prices = [x[1] for x in clean_data]
+            clean_volumes = [x[2] for x in clean_data]
             
-            fig = go.Figure(data=go.Scatter(
-                x=clean_dates, y=clean_prices, mode='lines',
-                line=dict(color='#00b4d8', width=3),
-                hovertemplate=f"<b>시간:</b> %{{x}}<br><b>종가:</b> %{{y:,.2f}} {curr_symbol}<extra></extra>"
-            ))
+            # 이동평균선(MA) 생성
+            ma20 = calc_ma(clean_prices, 20)
+            ma60 = calc_ma(clean_prices, 60)
+
+            # 📊 이중 차트(가격 + 거래량) 생성
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # 1. 주가 선
+            fig.add_trace(go.Scatter(x=clean_dates, y=clean_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
+            
+            # 2. 20일 이평선 (황금색 점선)
+            fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+            
+            # 3. 60일 이평선 (보라색 점선)
+            fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+
+            # 4. 거래량 바 (상승/하락에 따라 색상 변경)
+            vol_colors = ['#ff4b4b' if i > 0 and clean_prices[i] < clean_prices[i-1] else '#00cc96' for i in range(len(clean_prices))]
+            fig.add_trace(go.Bar(x=clean_dates, y=clean_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
             
             fig.update_layout(
-                title=f"📈 {official_name} 주가 흐름 ({timeframe})",
+                title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
                 xaxis_title="시간 (Time)" if timeframe == "1주일" else "날짜 (Date)",
-                yaxis_title=f"주가 ({currency})",
-                hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0)
+                hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1) # 범례를 위로
             )
             
+            # Y축 2개 설정 (거래량이 차트 밑바닥에만 깔리도록 높이 조절)
+            fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
+            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(clean_volumes)*4]) # 거래량은 아래 1/4만 차지
+            
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
-                fig.update_xaxes(
-                    rangebreaks=[
-                        dict(bounds=["sat", "mon"]) 
-                    ]
-                )
+                fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
             
