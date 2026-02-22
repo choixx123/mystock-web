@@ -59,9 +59,12 @@ if st.button("🚀 실시간 주가 조회", use_container_width=True):
                     symbol = best_match['symbol']
                     official_name = best_match.get('shortname', english_name)
                 
-                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                # 🔥 [업그레이드 포인트] 최근 3개월 치 데이터를 가져오도록 URL 수정!
+                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=3mo&interval=1d"
                 chart_res = requests.get(chart_url, headers=headers).json()
-                meta = chart_res['chart']['result'][0]['meta']
+                
+                result = chart_res['chart']['result'][0]
+                meta = result['meta']
                 
                 price = meta['regularMarketPrice']
                 prev_close = meta['chartPreviousClose']
@@ -70,7 +73,7 @@ if st.button("🚀 실시간 주가 조회", use_container_width=True):
                 change = price - prev_close
                 change_pct = (change / prev_close) * 100
                 
-                # 웹앱 전용 깔끔한 표시 위젯 (st.metric)
+                # 1. 상단: 종목명 및 현재가 표시
                 st.subheader(f"{official_name} ({symbol})")
                 
                 if currency == 'KRW':
@@ -81,12 +84,26 @@ if st.button("🚀 실시간 주가 조회", use_container_width=True):
                     ex_rate = ex_res['chart']['result'][0]['meta']['regularMarketPrice']
                     krw_price = int(price * ex_rate)
                     
-                    # 지표 2개를 나란히 표시
                     col1, col2 = st.columns(2)
                     col1.metric(label=f"현재가 ({currency})", value=f"{price:,.2f} {currency}", delta=f"{change:,.2f} {currency} ({change_pct:+.2f}%)")
                     col2.metric(label="원화 환산가 (KRW)", value=f"약 {krw_price:,} 원")
+                
+                # 2. 하단: 최근 3개월 주가 차트 (Streamlit 마법)
+                st.markdown("---")
+                st.markdown("### 📈 최근 3개월 주가 흐름")
+                
+                try:
+                    # 야후에서 종가(close) 리스트만 뽑아내기
+                    close_prices = result['indicators']['quote'][0]['close']
+                    # 에러 방지를 위해 빈 데이터(None) 제거
+                    clean_prices = [p for p in close_prices if p is not None]
                     
-                st.success("조회 완료!")
+                    # 꺾은선 차트 그리기 (단 한 줄이면 끝난다!)
+                    st.line_chart(clean_prices)
+                except Exception as e:
+                    st.info("차트 데이터를 불러오는 데 실패했습니다.")
+                    
+                st.success("조회 및 차트 분석 완료!")
                 
             except Exception as e:
                 st.error(f"❌ 시스템 에러 발생: {e}")
