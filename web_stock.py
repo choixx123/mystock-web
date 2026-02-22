@@ -91,7 +91,6 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
             
-        # 1. 52주 최고/최저가 추출
         high_52, low_52 = 0, 0
         try:
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -104,7 +103,6 @@ if search_term:
         except Exception as e:
             pass
 
-        # 2. 차트 데이터 가져오기
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
         interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
         
@@ -118,11 +116,10 @@ if search_term:
         meta = result['meta']
         
         price = meta.get('regularMarketPrice', 0)
-        prev_close = meta.get('chartPreviousClose', price)
-        currency = meta.get('currency', 'USD')
-        
-        # 🛠️ [해결] 차트 마지막 값이 아니라, '진짜 당일 누적 거래량'을 메타데이터에서 강제로 뽑아옴!
+        # 🛠️ 버그 수정: 차트 시작점이 아니라 진짜 '어제 종가(previousClose)'를 가져옴!
+        prev_close = meta.get('previousClose', meta.get('chartPreviousClose', price)) 
         today_volume = meta.get('regularMarketVolume', 0)
+        currency = meta.get('currency', 'USD')
         
         change = price - prev_close
         change_pct = (change / prev_close) * 100 if prev_close else 0
@@ -135,9 +132,6 @@ if search_term:
         elif currency == "HKD": curr_symbol = "HK＄"
         else: curr_symbol = currency
         
-        sign = "-" if change < 0 else "+"
-        abs_change = abs(change)
-        
         timestamps = result['timestamp']
         close_prices = result['indicators']['quote'][0]['close']
         volumes = result['indicators']['quote'][0].get('volume', [0]*len(close_prices))
@@ -147,14 +141,14 @@ if search_term:
         
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 ---
         kpi1, kpi2, kpi3, kpi4 = st.columns([1.1, 1, 1.1, 1.4]) 
         
+        # 🛠️ 상승률 절대 표시 방어막: Streamlit이 못 숨기도록 오직 [숫자+퍼센트] 기호만 남김!
         if currency == 'KRW':
-            delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
+            delta_str = f"{change:+.0f} ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
         else:
-            delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
+            delta_str = f"{change:+.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
             
             try:
@@ -164,7 +158,6 @@ if search_term:
             except:
                 kpi2.metric(label="원화 환산가", value="계산 불가")
 
-        # 이제 기간을 바꿔도 이 값은 무조건 '오늘의 진짜 거래량'으로 고정된다!
         kpi3.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
         
         if high_52 and low_52:
@@ -174,7 +167,6 @@ if search_term:
         else:
             kpi4.metric(label="⚖️ 52주 최고/최저", value="계산 실패")
 
-        # --- 📈 차트 그리기 ---
         st.markdown("---")
         try:
             if timeframe == "3년":
@@ -194,7 +186,6 @@ if search_term:
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scatter(x=clean_dates, y=clean_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
 
-            # 🛠️ [해결] 기간별로 이평선(Moving Average)을 스마트하게 전환!
             if timeframe in ["1달", "3달", "6달", "1년"]:
                 ma20 = calc_ma(clean_prices, 20)
                 ma60 = calc_ma(clean_prices, 60)
@@ -210,7 +201,6 @@ if search_term:
                 ma60 = calc_ma(clean_prices, 60)
                 fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
                 fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
-            # 1주일 조회 시에는 이평선을 그리지 않음!
 
             vol_colors = ['#ff4b4b' if i > 0 and clean_prices[i] < clean_prices[i-1] else '#00cc96' for i in range(len(clean_prices))]
             fig.add_trace(go.Bar(x=clean_dates, y=clean_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
