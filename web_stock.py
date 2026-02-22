@@ -134,11 +134,17 @@ if search_term:
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # 🔥 [가장 중요한 마법] 라이브 모드가 켜져 있다면? 10초 대기 후 새로고침!
+         # 🔥 UI 개선: 팝업은 스위치를 켤 때 딱 한 번만! 5초마다 '조용히' 새로고침!
             if live_mode:
-                st.toast("🔴 라이브 모드 작동 중: 5초 후 주가를 업데이트합니다...", icon="⏳")
+                if "live_on" not in st.session_state:
+                    st.toast("🔴 라이브 모드 ON: 이제부터 5초마다 조용히 자동 갱신됩니다!", icon="⚡")
+                    st.session_state.live_on = True # 알림을 띄웠다고 메모장에 기록!
+                
                 time.sleep(5)
-                st.rerun() # 화면 전체를 자동으로 새로고침!
+                st.rerun()
+            else:
+                # 스위치를 끄면 메모장 기록을 지워서 다음에 켤 때 다시 알림이 뜨게 만듦
+                st.session_state.pop("live_on", None)
                 
         except Exception as e:
             st.info(f"차트 데이터를 불러오는 데 실패했습니다: {e}")
