@@ -1,4 +1,4 @@
-import streamlit as st
+=import streamlit as st
 import requests
 import re
 import time
@@ -104,9 +104,9 @@ if search_term:
         except Exception as e:
             pass
 
-        # 2. 차트 및 거래량 데이터 가져오기
+        # 2. 차트 및 거래량 데이터 가져오기 (10년 오타 수정 완료!)
         range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
-        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "10y"}
+        interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"} # 10y -> 1mo 로 수정!
         
         selected_range = range_map[timeframe]
         selected_interval = interval_map[timeframe]
@@ -124,7 +124,6 @@ if search_term:
         change = price - prev_close
         change_pct = (change / prev_close) * 100
         
-        # 🛠️ 달러($) 기호가 수학 공식으로 변환되지 않도록 'US$' 로 고정 방어!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
         elif currency == "USD": curr_symbol = "US$" 
@@ -146,11 +145,11 @@ if search_term:
         
         clean_prices = [x[1] for x in clean_data]
         clean_volumes = [x[2] for x in clean_data]
-        today_volume = clean_volumes[-1] if clean_volumes else 0 # 당일 거래량 확보
+        today_volume = clean_volumes[-1] if clean_volumes else 0 
         
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 (시가총액 대신 당일 거래량 투입!) ---
+        # --- 💰 상단 요약판 ---
         kpi1, kpi2, kpi3, kpi4 = st.columns([1.1, 1, 1.1, 1.4]) 
         
         if currency == 'KRW':
@@ -167,10 +166,8 @@ if search_term:
             except:
                 kpi2.metric(label="원화 환산가", value="계산 불가")
 
-        # 막힌 시가총액을 당일 거래량으로 폼나게 교체!
         kpi3.metric(label="📊 당일 거래량", value=f"{int(today_volume):,} 주")
         
-        # 🛠️ 52주 최고/최저 수학 기호 버그 해결!
         if high_52 and low_52:
             h_str = f"{curr_symbol}{int(high_52):,}" if high_52 > 1000 else f"{curr_symbol}{high_52:,.2f}"
             l_str = f"{curr_symbol}{int(low_52):,}" if low_52 > 1000 else f"{curr_symbol}{low_52:,.2f}"
@@ -187,6 +184,8 @@ if search_term:
             
             if timeframe == "1주일":
                 clean_dates = [x[0].strftime('%Y-%m-%d %H:%M') for x in clean_data]
+            elif timeframe in ["10년"]:
+                clean_dates = [x[0].strftime('%Y-%m') for x in clean_data] # 10년은 월 단위로 깔끔하게!
             else:
                 clean_dates = [x[0].strftime('%Y-%m-%d') for x in clean_data]
                 
