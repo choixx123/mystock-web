@@ -1,15 +1,15 @@
 import streamlit as st
 import requests
 import re
-import time  # 🔥 10초 타이머를 위한 시간 부품 추가!
+import time  # 🔥 5초 타이머를 위한 시간 부품 추가!
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# 🔥 CEO 전용 VIP 장부
+# 🔥 CEO 전용 VIP 장부 (정식 명칭으로 변경!)
 vip_dict = {
-    "현대차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
-    "루이비통": "MC.PA", "엔비": "NVDA", "삼전": "005930.KS",
-    "테슬라": "TSLA", "애플": "AAPL", "마소": "MSFT"
+    "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
+    "루이비통": "MC.PA", "엔비디아": "NVDA", "삼성전자": "005930.KS",
+    "테슬라": "TSLA", "애플": "AAPL", "마이크로소프트": "MSFT"
 }
 
 def translate_to_english(text):
@@ -27,18 +27,21 @@ st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layou
 
 st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
 
-# 🔥 [업그레이드] 검색창과 라이브 스위치를 나란히 예쁘게 배치!
+# 검색창과 라이브 스위치 배치
 col1, col2 = st.columns([3, 1])
 with col1:
     search_term = st.text_input("🔍 종목명/티커 입력 후 [Enter]를 누르세요 (예: 테슬라)", "테슬라")
+    # 🔥 [업그레이드 포인트] 검색창 바로 밑에 VIP 리스트를 예쁘게 보여준다!
+    vip_list_text = ", ".join(vip_dict.keys())
+    st.caption(f"💡 **빠른 검색 지원 종목:** {vip_list_text}")
+    
 with col2:
-    st.write("") # 줄 맞춤용 빈칸
+    st.write("") 
     st.write("")
-    live_mode = st.toggle("🔴 라이브 모드 (10초 자동 갱신)") # 마법의 스위치!
+    live_mode = st.toggle("🔴 라이브 모드 (5초 자동 갱신)")
 
 timeframe = st.radio("⏳ 조회 기간 선택", ["1주일", "1달", "3달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
 
-# 버튼이 사라지고, 검색어만 있으면 '자동'으로 실행된다!
 if search_term:
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -46,6 +49,7 @@ if search_term:
         symbol = ""
         official_name = original_name
         
+        # 정식 명칭으로 검색 매칭
         if original_name in vip_dict:
             symbol = vip_dict[original_name]
         else:
@@ -134,20 +138,20 @@ if search_term:
             )
             st.plotly_chart(fig, use_container_width=True)
             
-         # 🔥 UI 개선: 팝업은 스위치를 켤 때 딱 한 번만! 5초마다 '조용히' 새로고침!
+            # 🔥 라이브 모드 (조용한 5초 스니킹 모드)
             if live_mode:
                 if "live_on" not in st.session_state:
                     st.toast("🔴 라이브 모드 ON: 이제부터 5초마다 조용히 자동 갱신됩니다!", icon="⚡")
-                    st.session_state.live_on = True # 알림을 띄웠다고 메모장에 기록!
+                    st.session_state.live_on = True 
                 
                 time.sleep(5)
                 st.rerun()
             else:
-                # 스위치를 끄면 메모장 기록을 지워서 다음에 켤 때 다시 알림이 뜨게 만듦
-                st.session_state.pop("live_on", None)
+                st.session_state.pop("live_on", None) 
                 
         except Exception as e:
             st.info(f"차트 데이터를 불러오는 데 실패했습니다: {e}")
             
     except Exception as e:
         st.error(f"❌ 시스템 에러 발생: {e}")
+        
