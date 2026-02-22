@@ -91,7 +91,7 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
             
-        # 🛠️ 1. 52주 최고/최저가 100% 강제 계산 엔진
+        # 1. 52주 최고/최저가 추출
         high_52, low_52 = 0, 0
         try:
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -124,13 +124,13 @@ if search_term:
         change = price - prev_close
         change_pct = (change / prev_close) * 100
         
-        # 🛠️ 방어막(\) 제거! 순수 달러 기호로 복구!
+        # 🛠️ 수학 공식 버그 완벽 무력화: 진짜 '$' 대신 컴퓨터가 글자로 인식하는 특수문자 전각 '＄' 사용!
         if currency == "KRW": curr_symbol = "₩"
         elif currency == "JPY": curr_symbol = "¥"
-        elif currency == "USD": curr_symbol = "$" 
+        elif currency == "USD": curr_symbol = "＄" 
         elif currency == "EUR": curr_symbol = "€"
-        elif currency == "TWD": curr_symbol = "NT$"
-        elif currency == "HKD": curr_symbol = "HK$"
+        elif currency == "TWD": curr_symbol = "NT＄"
+        elif currency == "HKD": curr_symbol = "HK＄"
         else: curr_symbol = currency
         
         sign = "-" if change < 0 else "+"
@@ -157,7 +157,7 @@ if search_term:
             delta_str = f"{change:+.0f} 원 ({change_pct:+.2f}%)"
             kpi1.metric(label="현재가 (KRW)", value=f"{int(price):,} 원", delta=delta_str)
         else:
-            # 방어막이 사라졌으므로 Streamlit이 이 Delta를 정상적으로 인식하고 화려하게 띄워준다!
+            # ＄ 기호를 아무리 써도 에러 없이 화면에 상승률이 무조건 나온다!
             delta_str = f"{sign}{curr_symbol}{abs_change:,.2f} ({change_pct:+.2f}%)"
             kpi1.metric(label=f"현재가 ({currency})", value=f"{curr_symbol}{price:,.2f}", delta=delta_str)
             
@@ -170,11 +170,11 @@ if search_term:
 
         kpi3.metric(label="📊 당일 거래량", value=f"{int(today_volume):,} 주")
         
-        # 🛠️ 수학 공식 오류 원천 차단: 달러 기호를 '제목(Label)'에만 넣고, 숫자칸은 기호 없이 깔끔하게 배치!
+        # 52주 최고/최저에도 ＄ 기호를 넣어 깔끔하게 폰트 통일!
         if high_52 and low_52:
-            h_str = f"{int(high_52):,}" if high_52 > 1000 else f"{high_52:,.2f}"
-            l_str = f"{int(low_52):,}" if low_52 > 1000 else f"{low_52:,.2f}"
-            kpi4.metric(label=f"⚖️ 52주 최고/최저 ({curr_symbol})", value=f"{h_str} / {l_str}")
+            h_str = f"{curr_symbol}{int(high_52):,}" if high_52 > 1000 else f"{curr_symbol}{high_52:,.2f}"
+            l_str = f"{curr_symbol}{int(low_52):,}" if low_52 > 1000 else f"{curr_symbol}{low_52:,.2f}"
+            kpi4.metric(label="⚖️ 52주 최고/최저", value=f"{h_str} / {l_str}")
         else:
             kpi4.metric(label="⚖️ 52주 최고/최저", value="계산 실패")
 
