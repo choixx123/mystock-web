@@ -124,49 +124,39 @@ if search_term:
             st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
 
-        # 🛠️ [해결] 글자를 최대한 짧게 압축해서 ... 방지!
         if currency == "KRW":
             price_str = f"{int(price):,} 원"
             change_val_str = f"{day_change:+,.0f} 원"
-            highlow_52_str = f"{int(high_52):,} / {int(low_52):,} 원" # 중복 단위 제거
+            highlow_52_str = f"{int(high_52):,} / {int(low_52):,} 원" 
         else:
             curr_symbol = "＄"
             price_str = f"{curr_symbol} {price:,.2f}"
             change_val_str = f"{day_change:+,.2f} {curr_symbol}" 
-            highlow_52_str = f"{curr_symbol}{high_52:,.2f} / {curr_symbol}{low_52:,.2f}" # 공백 최소화
+            highlow_52_str = f"{curr_symbol}{high_52:,.2f} / {curr_symbol}{low_52:,.2f}" 
 
         st.subheader(f"{official_name} ({symbol})")
         
-        # --- 💰 상단 요약판 (스마트 레이아웃) ---
+        # --- 💰 상단 요약판 ---
         if currency == "KRW":
-            # 한국 주식: 원화 환산가 컬럼 완전 삭제, 4칸으로 넓게 배분! (마지막 칸 크기 2.0으로 초대형 확장)
             kpi1, kpi2, kpi4, kpi5 = st.columns([1.1, 1.3, 1.3, 2.0]) 
-            
             kpi1.metric(label=f"💰 현재가", value=price_str)
             kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
             kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
-            
             if high_52 and low_52:
                 kpi5.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str)
             else:
                 kpi5.metric(label="⚖️ 52주 최고/최저", value="데이터 없음")
-                
         else:
-            # 해외 주식: 원화 환산가 포함 5칸 배분
             kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.0, 1.2, 1.2, 1.2, 1.8]) 
-            
             kpi1.metric(label=f"💰 현재가 ({currency})", value=price_str)
             kpi2.metric(label="📈 전일 대비 상승률", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
-            
             try:
                 ex_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X"
                 ex_rate = requests.get(ex_url, headers=headers).json()['chart']['result'][0]['meta']['regularMarketPrice']
                 kpi3.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
             except:
                 kpi3.metric(label="🇰🇷 원화 환산가", value="계산 불가")
-
             kpi4.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
-            
             if high_52 and low_52:
                 kpi5.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str)
             else:
@@ -175,10 +165,11 @@ if search_term:
         # --- 📈 차트 그리기 ---
         st.markdown("---")
         try:
-            range_map = {"1주일": "5d", "1달": "1mo", "3달": "3mo", "6달": "6mo", "1년": "1y", "3년": "5y", "5년": "5y", "10년": "10y"}
+            # 🛠️ [핵심 패치] 이동평균선 계산을 위해 '실제 조회 기간'보다 훨씬 긴 '백그라운드 조회 기간' 설정
+            fetch_range_map = {"1주일": "1mo", "1달": "6mo", "3달": "1y", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
             interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
             
-            selected_range = range_map[timeframe]
+            selected_range = fetch_range_map[timeframe]
             selected_interval = interval_map[timeframe]
             
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={selected_range}&interval={selected_interval}"
@@ -192,41 +183,49 @@ if search_term:
             dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
             clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
 
-            if timeframe == "3년":
-                cutoff_date = datetime.now() - timedelta(days=3*365)
-                clean_data = [(d, p, v) for d, p, v in clean_data if d >= cutoff_date]
-            
-            if timeframe == "1주일":
-                clean_dates = [x[0].strftime('%Y-%m-%d %H:%M') for x in clean_data]
-            elif timeframe in ["10년"]:
-                clean_dates = [x[0].strftime('%Y-%m') for x in clean_data]
-            else:
-                clean_dates = [x[0].strftime('%Y-%m-%d') for x in clean_data]
-                
-            clean_prices = [x[1] for x in clean_data]
-            clean_volumes = [x[2] for x in clean_data]
-            
+            # 넉넉하게 불러온 전체 데이터로 이동평균선 먼저 완벽하게 계산
+            full_prices = [x[1] for x in clean_data]
+            ma20_full = calc_ma(full_prices, 20)
+            ma60_full = calc_ma(full_prices, 60)
+
+            # CEO가 선택한 기간에 맞춰 날짜 자르기 (Cutoff)
+            cutoff_map = {"1주일": 7, "1달": 30, "3달": 90, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
+            cutoff_date = datetime.now() - timedelta(days=cutoff_map[timeframe])
+
+            filtered_dates, filtered_prices, filtered_volumes = [], [], []
+            filtered_ma20, filtered_ma60 = [], []
+
+            for i in range(len(clean_data)):
+                if clean_data[i][0] >= cutoff_date:
+                    if timeframe == "1주일":
+                        d_str = clean_data[i][0].strftime('%Y-%m-%d %H:%M')
+                    elif timeframe == "10년":
+                        d_str = clean_data[i][0].strftime('%Y-%m')
+                    else:
+                        d_str = clean_data[i][0].strftime('%Y-%m-%d')
+                    
+                    filtered_dates.append(d_str)
+                    filtered_prices.append(clean_data[i][1])
+                    filtered_volumes.append(clean_data[i][2])
+                    filtered_ma20.append(ma20_full[i])
+                    filtered_ma60.append(ma60_full[i])
+
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Scatter(x=clean_dates, y=clean_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
+            fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
 
+            # 🛠️ [디자인 패치] 점선(dash='dot') 제거! 얇고 깔끔한 실선(width=1.5)으로 변경
             if timeframe in ["1달", "3달", "6달", "1년"]:
-                ma20 = calc_ma(clean_prices, 20)
-                ma60 = calc_ma(clean_prices, 60)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
             elif timeframe in ["3년", "5년"]:
-                ma20 = calc_ma(clean_prices, 20)
-                ma60 = calc_ma(clean_prices, 60)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
             elif timeframe == "10년":
-                ma20 = calc_ma(clean_prices, 20)
-                ma60 = calc_ma(clean_prices, 60)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=clean_dates, y=ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
 
-            vol_colors = ['#ff4b4b' if i > 0 and clean_prices[i] < clean_prices[i-1] else '#00cc96' for i in range(len(clean_prices))]
-            fig.add_trace(go.Bar(x=clean_dates, y=clean_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
+            vol_colors = ['#ff4b4b' if i > 0 and filtered_prices[i] < filtered_prices[i-1] else '#00cc96' for i in range(len(filtered_prices))]
+            fig.add_trace(go.Bar(x=filtered_dates, y=filtered_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
             
             fig.update_layout(
                 title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
@@ -236,7 +235,7 @@ if search_term:
             )
             
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
-            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(clean_volumes)*4 if clean_volumes and max(clean_volumes) > 0 else 100])
+            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max(filtered_volumes)*4 if filtered_volumes and max(filtered_volumes) > 0 else 100])
             
             if timeframe in ["1주일", "1달", "3달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
