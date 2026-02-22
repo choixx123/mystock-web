@@ -165,7 +165,6 @@ if search_term:
         # --- 📈 차트 그리기 ---
         st.markdown("---")
         try:
-            # 🛠️ [핵심 패치] 이동평균선 계산을 위해 '실제 조회 기간'보다 훨씬 긴 '백그라운드 조회 기간' 설정
             fetch_range_map = {"1주일": "1mo", "1달": "6mo", "3달": "1y", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
             interval_map = {"1주일": "15m", "1달": "1d", "3달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
             
@@ -183,12 +182,10 @@ if search_term:
             dt_objects = [datetime.fromtimestamp(ts) for ts in timestamps]
             clean_data = [(d, p, v if v else 0) for d, p, v in zip(dt_objects, close_prices, volumes) if p is not None]
 
-            # 넉넉하게 불러온 전체 데이터로 이동평균선 먼저 완벽하게 계산
             full_prices = [x[1] for x in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
 
-            # CEO가 선택한 기간에 맞춰 날짜 자르기 (Cutoff)
             cutoff_map = {"1주일": 7, "1달": 30, "3달": 90, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
             cutoff_date = datetime.now() - timedelta(days=cutoff_map[timeframe])
 
@@ -213,16 +210,18 @@ if search_term:
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_prices, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)), secondary_y=False)
 
-            # 🛠️ [디자인 패치] 점선(dash='dot') 제거! 얇고 깔끔한 실선(width=1.5)으로 변경
-            if timeframe in ["1달", "3달", "6달", "1년"]:
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
+            # 🛠️ [패치 적용] 1달 차트에서는 60일선 제거, 그리고 전부 다시 점선(dash='dot')으로 복구!
+            if timeframe == "1달":
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+            elif timeframe in ["3달", "6달", "1년"]:
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
             elif timeframe in ["3년", "5년"]:
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
             elif timeframe == "10년":
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5)), secondary_y=False)
-                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5)), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dot')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=filtered_dates, y=filtered_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dot')), secondary_y=False)
 
             vol_colors = ['#ff4b4b' if i > 0 and filtered_prices[i] < filtered_prices[i-1] else '#00cc96' for i in range(len(filtered_prices))]
             fig.add_trace(go.Bar(x=filtered_dates, y=filtered_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
