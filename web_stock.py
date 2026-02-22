@@ -38,7 +38,6 @@ def calc_ma(prices, window):
             ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
-# 🔥 RSI (상대강도지수) 계산 함수
 def calc_rsi(prices, period=14):
     rsi = [None] * len(prices)
     if len(prices) < period + 1:
@@ -93,15 +92,27 @@ with col3:
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
 
 search_term = st.session_state.search_input
-timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=3)
+
+# 🔥 차트 종류 및 조회 기간 선택 (나란히 배치)
+opt_col1, opt_col2 = st.columns([1, 2])
+with opt_col1:
+    chart_type = st.radio("📊 차트 종류", ["일반 선(Line) 차트", "전문가용 캔들(Candle) 차트"], horizontal=True)
+with opt_col2:
+    timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=3)
 
 if search_term:
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br'
+    }
+    
     try:
         original_name = search_term.strip()
         symbol = ""
         official_name = original_name
         
+        # 1. 심볼(티커) 확인
         if original_name in vip_dict:
             symbol = vip_dict[original_name]
         else:
@@ -121,23 +132,38 @@ if search_term:
             symbol = best_match['symbol']
             official_name = best_match.get('shortname', english_name)
 
-        # 🔥 종목 상세 정보 (재무 지표) 가져오기 - 에러 철벽 방어 적용!!!
+        # 🔥 2. 뉴스 데이터 강제 긁어오기 (버그 해결!)
+        news_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol}"
+        try:
+            news_data = requests.get(news_url, headers=headers, timeout=5).json()
+            news_items = news_data.get('news', [])
+        except:
+            news_items = []
+
+        # 🔥 3. 가치 지표(재무) 가져오기 이중 우회 로직 (데이터 없음 해결!)
         market_cap, pe_ratio, div_yield = 0, None, 0
         try:
-            quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-            quote_res = requests.get(quote_url, headers=headers, timeout=5)
-            if quote_res.status_code == 200:
-                quote_data = quote_res.json()
-                # 'quoteResponse'가 무사히 있는지, 'result'가 비어있지 않은지 꼼꼼히 체크!
-                if 'quoteResponse' in quote_data and quote_data['quoteResponse'].get('result'):
-                    quote_result = quote_data['quoteResponse']['result'][0]
-                    market_cap = quote_result.get('marketCap', 0)
-                    pe_ratio = quote_result.get('trailingPE', None)
-                    div_yield = quote_result.get('trailingAnnualDividendYield', 0) * 100
-        except Exception:
-            pass # 데이터를 못 불러와도 에러 띄우지 않고 쿨하게 넘김!
+            # 첫 번째 시도 (일반 API)
+            q_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+            q_res = requests.get(q_url, headers=headers, timeout=5).json()
+            if 'quoteResponse' in q_res and q_res['quoteResponse'].get('result'):
+                quote_result = q_res['quoteResponse']['result'][0]
+                market_cap = quote_result.get('marketCap', 0)
+                pe_ratio = quote_result.get('trailingPE', None)
+                div_yield = quote_result.get('trailingAnnualDividendYield', 0) * 100
+            else:
+                # 실패 시 두 번째 시도 (우회 API)
+                fallback_url = f"https://query2.finance.yahoo.com/v10/finance/quoteModules/{symbol}?modules=summaryDetail"
+                fb_res = requests.get(fallback_url, headers=headers, timeout=5).json()
+                if 'quoteSummary' in fb_res and fb_res['quoteSummary'].get('result'):
+                    sd = fb_res['quoteSummary']['result'][0].get('summaryDetail', {})
+                    market_cap = sd.get('marketCap', {}).get('raw', 0)
+                    pe_ratio = sd.get('trailingPE', {}).get('raw', None)
+                    div_yield = sd.get('dividendYield', {}).get('raw', 0) * 100
+        except Exception as e:
+            pass # 모두 실패해도 프로그램은 죽지 않는다!
 
-        # 주가 및 기본 정보 가져오기
+        # 4. 주가 및 기본 정보 가져오기
         url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
         res_1y_data = requests.get(url_1y, headers=headers).json()
         
@@ -164,7 +190,7 @@ if search_term:
             st.error("❌ 야후 파이낸스에서 종목 데이터를 불러올 수 없습니다.")
             st.stop()
 
-        # 🔥 국가별 캔들 색상 로직 
+        # 국가별 색상 로직 
         is_korean = symbol.endswith('.KS') or symbol.endswith('.KQ')
         inc_color = '#ff4b4b' if is_korean else '#00cc96' # 한국: 빨강 / 해외: 초록
         dec_color = '#00b4d8' if is_korean else '#ff4b4b' # 한국: 파랑 / 해외: 빨강
@@ -244,12 +270,16 @@ if search_term:
                     f_ma60.append(ma60_full[i])
                     f_rsi.append(rsi_full[i])
 
-            # 🔥 3단 분리 차트
+            # 🔥 3단 분리 차트 (선차트 / 캔들차트 선택 기능 적용)
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.03)
             
-            # 1층: 캔들
-            fig.add_trace(go.Candlestick(x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
-                                         increasing_line_color=inc_color, decreasing_line_color=dec_color, name='주가'), row=1, col=1)
+            # 1층: 주가 차트 (CEO의 선택에 따라 렌더링!)
+            if chart_type == "일반 선(Line) 차트":
+                fig.add_trace(go.Scatter(x=f_dates, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=2.5)), row=1, col=1)
+            else:
+                fig.add_trace(go.Candlestick(x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
+                                             increasing_line_color=inc_color, decreasing_line_color=dec_color, name='주가'), row=1, col=1)
+                
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
 
@@ -263,7 +293,7 @@ if search_term:
             fig.add_hline(y=30, line_dash="dot", line_color="blue", row=3, col=1, annotation_text="침체(30)", annotation_position="bottom right")
             
             fig.update_layout(
-                title=f"📈 {official_name} 전문가용 분석 차트 ({timeframe})",
+                title=f"📈 {official_name} 분석 차트 ({timeframe} / {chart_type})",
                 xaxis_rangeslider_visible=False,
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
                 showlegend=False
@@ -276,7 +306,6 @@ if search_term:
             
             # --- 📰 4단: 최신 종목 뉴스 ---
             st.markdown("### 📰 실시간 관련 뉴스 속보")
-            news_items = search_res.get('news', [])
             if news_items:
                 for news in news_items[:4]: 
                     title = news.get('title', '제목 없음')
@@ -302,7 +331,7 @@ if search_term:
                 st.session_state.pop("live_on", None) 
                 
         except Exception as e:
-            st.info(f"차트 데이터를 불러오는 데 실패했습니다: {e}")
+            st.error(f"차트 렌더링 에러: {e}")
             
     except Exception as e:
         st.error(f"❌ 시스템 에러 발생: {e}")
