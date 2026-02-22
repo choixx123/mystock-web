@@ -25,26 +25,17 @@ def translate_to_english(text):
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
 
-# 🔥 [핵심 기능 1] 버튼을 누르면 검색창 글씨가 자동으로 바뀌게 하는 '기억 장치'
-if 'search_query' not in st.session_state:
-    st.session_state.search_query = "테슬라"
-
-def update_search(stock_name):
-    st.session_state.search_query = stock_name
-
+# 🔥 [UI 개선] 부담스러운 버튼을 없애고 세련된 '드롭다운(v)' 메뉴로 변경!
 col1, col2 = st.columns([3, 1])
 with col1:
-    st.markdown("💡 **빠른 검색 (버튼을 누르면 즉시 조회됩니다)**")
+    vip_choice = st.selectbox("💡 빠른 검색 (아래 'v' 화살표를 눌러 종목을 선택하세요)", ["(직접 검색)"] + list(vip_dict.keys()))
     
-    # VIP 종목들을 5칸씩 예쁘게 버튼으로 나열
-    btn_cols = st.columns(5)
-    vip_names = list(vip_dict.keys())
-    for i, name in enumerate(vip_names):
-        btn_cols[i % 5].button(name, on_click=update_search, args=(name,))
+    # VIP 목록에서 고르면 그걸로 검색, '(직접 검색)' 상태면 직접 타이핑할 수 있게 함!
+    if vip_choice != "(직접 검색)":
+        search_term = vip_choice
+    else:
+        search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", "테슬라")
         
-    # 검색창 (버튼을 누르면 이 안의 글자가 바뀜!)
-    search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_query")
-    
 with col2:
     st.write("") 
     st.write("")
@@ -98,7 +89,6 @@ if search_term:
         change_pct = (change / prev_close) * 100
         curr_symbol = "₩" if currency == "KRW" else ("$" if currency == "USD" else ("€" if currency == "EUR" else currency))
         
-        # 🔥 [핵심 기능 2] 기호(+/-)를 무조건 맨 앞으로 빼서 화살표 방향을 완벽하게 고침!
         sign = "-" if change < 0 else "+"
         abs_change = abs(change)
         
@@ -151,6 +141,14 @@ if search_term:
                 yaxis_title=f"주가 ({currency})",
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0)
             )
+            
+            # 🔥 [마법의 코드] 차트에서 토요일(sat)부터 월요일(mon)까지 빈 공간 싹둑 자르기!
+            fig.update_xaxes(
+                rangebreaks=[
+                    dict(bounds=["sat", "mon"]) 
+                ]
+            )
+
             st.plotly_chart(fig, use_container_width=True)
             
             if live_mode:
