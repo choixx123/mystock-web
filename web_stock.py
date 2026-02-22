@@ -25,22 +25,32 @@ def translate_to_english(text):
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 st.title("🌍 글로벌 주식 터미널 (Live Pro Version)")
 
-# 🔥 [UI 개선] 부담스러운 버튼을 없애고 세련된 '드롭다운(v)' 메뉴로 변경!
-col1, col2 = st.columns([3, 1])
+# 🔥 [핵심 마법] 화살표 메뉴에서 주식을 고르면, 그 글자를 검색창에 쏴주는 기능!
+if "search_input" not in st.session_state:
+    st.session_state.search_input = "테슬라"
+if "vip_dropdown" not in st.session_state:
+    st.session_state.vip_dropdown = "🔽 VIP 종목 선택"
+
+def apply_vip_search():
+    selected = st.session_state.vip_dropdown
+    if selected != "🔽 VIP 종목 선택":
+        # 고른 종목을 검색창에 자동 입력!
+        st.session_state.search_input = selected
+        # 메뉴는 다시 기본 상태로 되돌려놓음 (깔끔하게!)
+        st.session_state.vip_dropdown = "🔽 VIP 종목 선택" 
+
+# 🔥 [UI 개선] 검색창, 작아진 화살표 메뉴, 라이브 스위치를 한 줄에 나란히 배치!
+col1, col2, col3 = st.columns([4, 2, 2])
 with col1:
-    vip_choice = st.selectbox("💡 빠른 검색 (아래 'v' 화살표를 눌러 종목을 선택하세요)", ["(직접 검색)"] + list(vip_dict.keys()))
-    
-    # VIP 목록에서 고르면 그걸로 검색, '(직접 검색)' 상태면 직접 타이핑할 수 있게 함!
-    if vip_choice != "(직접 검색)":
-        search_term = vip_choice
-    else:
-        search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", "테슬라")
-        
+    st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
 with col2:
+    st.selectbox("⭐ 빠른 검색", ["🔽 VIP 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
+with col3:
     st.write("") 
     st.write("")
-    live_mode = st.toggle("🔴 라이브 모드 (5초 자동 갱신)")
+    live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
 
+search_term = st.session_state.search_input
 timeframe = st.radio("⏳ 조회 기간 선택", ["1주일", "1달", "3달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
 
 if search_term:
@@ -142,7 +152,7 @@ if search_term:
                 hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0)
             )
             
-            # 🔥 [마법의 코드] 차트에서 토요일(sat)부터 월요일(mon)까지 빈 공간 싹둑 자르기!
+            # 주말 컷(Cut) 코드 유지!
             fig.update_xaxes(
                 rangebreaks=[
                     dict(bounds=["sat", "mon"]) 
