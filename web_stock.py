@@ -6,8 +6,7 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- [전역 설정 및 KST 동기화] ---
-KST = timezone(timedelta(hours=9)) # 강제 한국 시간 설정
+KST = timezone(timedelta(hours=9)) 
 
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
@@ -22,14 +21,11 @@ vip_dict = {
 }
 
 def translate_to_english(text):
-    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()):
-        return text, True 
+    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): return text, True 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
-        res = requests.get(url, timeout=3) 
-        return res.json()[0][0][0], True
-    except:
-        return text, False 
+        return requests.get(url, timeout=3).json()[0][0][0], True
+    except: return text, False 
 
 def translate_to_korean(text):
     if not text: return ""
@@ -41,10 +37,8 @@ def translate_to_korean(text):
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
-        if i < window - 1:
-            ma.append(None)
-        else:
-            ma.append(sum(prices[i-window+1:i+1]) / window)
+        if i < window - 1: ma.append(None)
+        else: ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
@@ -58,10 +52,8 @@ st.markdown("""
 
 st.title("🌍 글로벌 주식 터미널")
 
-if "search_input" not in st.session_state:
-    st.session_state.search_input = "테슬라"
-if "vip_dropdown" not in st.session_state:
-    st.session_state.vip_dropdown = "🔽 주요 종목 선택"
+if "search_input" not in st.session_state: st.session_state.search_input = "테슬라"
+if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 def apply_vip_search():
     selected = st.session_state.vip_dropdown
@@ -69,7 +61,6 @@ def apply_vip_search():
         st.session_state.search_input = selected
         st.session_state.vip_dropdown = "🔽 주요 종목 선택" 
 
-# --- [상단 고정 컨트롤러] ---
 col1, col2, col3 = st.columns([4, 2, 2])
 with col1: st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
 with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
@@ -81,7 +72,6 @@ with col3:
 search_term = st.session_state.search_input
 timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
 
-# --- [깜빡임 방지를 위한 전용 메인 컨테이너] ---
 dashboard_container = st.empty()
 
 if search_term:
@@ -112,7 +102,6 @@ if search_term:
                 official_name = best_match.get('shortname', english_name)
                 news_data = search_res.get('news', [])
 
-            # 1. 메타 데이터 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = requests.get(url_1y, headers=headers).json()
             
@@ -128,7 +117,9 @@ if search_term:
                 price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
                 prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
                 today_volume = meta.get('regularMarketVolume', 0)
-                currency = meta.get('currency', 'USD')
+                
+                # [복구 포인트 2] 글로벌 통화 단위 그대로 유지
+                currency = meta.get('currency', 'USD') 
                 
                 day_change = price - prev_close
                 day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
@@ -141,20 +132,23 @@ if search_term:
                 st.error("❌ 데이터를 불러올 수 없습니다.")
                 st.stop()
 
-            # 2. UI 표시용 텍스트
+            # 환율 심볼 매핑 (유로, 엔화, 달러 등)
+            c_symbol = "₩" if currency == "KRW" else "＄" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
+            
             if currency == "KRW":
                 price_str = f"{int(price):,} 원"
                 change_val_str = f"{day_change:+,.0f} 원"
                 highlow_52_str = f"{int(high_52):,} / {int(low_52):,} 원" 
             else:
-                price_str = f"＄ {price:,.2f}"
-                change_val_str = f"{day_change:+,.2f} ＄" 
-                highlow_52_str = f"＄{high_52:,.2f} / ＄{low_52:,.2f}" 
+                # 각국의 통화를 유지하되 가독성을 위해 소수점 2자리 표기
+                price_str = f"{c_symbol}{price:,.2f}"
+                change_val_str = f"{day_change:+,.2f} {c_symbol}" 
+                highlow_52_str = f"{c_symbol}{high_52:,.2f} / {c_symbol}{low_52:,.2f}" 
 
             st.subheader(f"{official_name} ({symbol})")
             
-            # --- [UI 버그 해결: 구조를 완벽히 고정함] ---
-            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+            # [복구 포인트 3] 컬럼 비율을 1.8까지 늘려서 줄임표(...) 버그 원천 차단
+            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.0, 1.2, 1.2, 1.2, 1.8])
             
             with kpi1: st.metric(label=f"💰 현재가", value=price_str)
             with kpi2: st.metric(label="📈 전일 대비", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
@@ -167,12 +161,12 @@ if search_term:
                     except:
                         st.metric(label="🇰🇷 원화 환산가", value="계산 불가")
                 else:
-                    st.empty() # 원화일 땐 가운데를 깔끔하게 비움 (잔상 버그 방지)
+                    st.empty() # 원화일 땐 UI 잔상 방지용 빈칸
             
             with kpi4: st.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
             with kpi5: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
 
-            # 3. 차트 렌더링
+            # --- 차트 렌더링 ---
             st.markdown("---")
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
@@ -180,32 +174,46 @@ if search_term:
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
             chart_res = requests.get(chart_url, headers=headers).json()['chart']['result'][0]
             
-            # [시간 버그 해결: KST(한국시간)으로 완벽 변환]
             dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res['timestamp']]
-            
             quote = chart_res['indicators']['quote'][0]
             opens, highs, lows, closes, volumes = quote.get('open', []), quote.get('high', []), quote.get('low', []), quote.get('close', []), quote.get('volume', [])
             
             clean_data = [(d, o, h, l, c, v if v else 0) for d, o, h, l, c, v in zip(dt_objects, opens, highs, lows, closes, volumes) if c is not None]
 
-            # [1일 컷오프 로직 개선: 시간/날짜 충돌 원천 차단]
+            # [복구 포인트 1] 이평선을 자르기 전에 전체 데이터 기준으로 먼저 계산!
+            full_prices = [x[4] for x in clean_data]
+            ma20_full = calc_ma(full_prices, 20)
+            ma60_full = calc_ma(full_prices, 60)
+
+            # 그 다음에 Cutoff 로직 적용
+            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes = [], [], [], [], [], []
+            f_ma20, f_ma60 = [], []
+
             if timeframe == "1일" and clean_data:
                 last_day_str = clean_data[-1][0].strftime('%Y-%m-%d')
-                clean_data = [row for row in clean_data if row[0].strftime('%Y-%m-%d') == last_day_str]
-            elif timeframe != "1일":
+                for i in range(len(clean_data)):
+                    if clean_data[i][0].strftime('%Y-%m-%d') == last_day_str:
+                        f_dates.append(clean_data[i][0])
+                        f_opens.append(clean_data[i][1])
+                        f_highs.append(clean_data[i][2])
+                        f_lows.append(clean_data[i][3])
+                        f_closes.append(clean_data[i][4])
+                        f_volumes.append(clean_data[i][5])
+                        f_ma20.append(ma20_full[i])
+                        f_ma60.append(ma60_full[i])
+            else:
                 cutoff_map = {"1주일": 7, "1달": 30, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
-                cutoff_date = datetime.now(KST) - timedelta(days=cutoff_map[timeframe])
-                clean_data = [row for row in clean_data if row[0] >= cutoff_date]
-
-            f_dates = [x[0] for x in clean_data]
-            f_opens = [x[1] for x in clean_data]
-            f_highs = [x[2] for x in clean_data]
-            f_lows = [x[3] for x in clean_data]
-            f_closes = [x[4] for x in clean_data]
-            f_volumes = [x[5] for x in clean_data]
-
-            f_ma20 = calc_ma(f_closes, 20)
-            f_ma60 = calc_ma(f_closes, 60)
+                cutoff_date = datetime.now(KST) - timedelta(days=cutoff_map.get(timeframe, 30))
+                for i in range(len(clean_data)):
+                    if clean_data[i][0] >= cutoff_date:
+                        f_dates.append(clean_data[i][0])
+                        f_opens.append(clean_data[i][1])
+                        f_highs.append(clean_data[i][2])
+                        f_lows.append(clean_data[i][3])
+                        f_closes.append(clean_data[i][4])
+                        f_volumes.append(clean_data[i][5])
+                        f_ma20.append(ma20_full[i])
+                        f_ma60.append(ma60_full[i])
 
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
@@ -216,10 +224,21 @@ if search_term:
             else:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3), connectgaps=True), secondary_y=False)
 
-            if timeframe in ["1일", "1주일", "1달", "6달", "1년"]:
+            # 네가 원했던 원래 이름(20일선, 60주선 등) 완전 복구
+            if timeframe in ["1일", "1주일"]:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                if timeframe in ["1일", "1주일", "6달", "1년"]:
-                    fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe == "1달":
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe in ["6달", "1년"]:
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe in ["3년", "5년"]:
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe == "10년":
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
             vol_colors = [down_color if i > 0 and f_closes[i] < f_closes[i-1] else up_color for i in range(len(f_closes))]
             fig.add_trace(go.Bar(x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), secondary_y=True)
@@ -236,7 +255,6 @@ if search_term:
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # 4. 뉴스 렌더링
             if original_name not in vip_dict and 'news_data' in locals() and news_data:
                 st.markdown("### 📰 실시간 관련 뉴스 (자동 번역)")
                 for n in news_data[:3]:
@@ -250,7 +268,6 @@ if search_term:
     except Exception as e:
         dashboard_container.error(f"❌ 데이터 연산 오류: {e}")
 
-# --- [라이브 모드 사이클 제어] ---
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
