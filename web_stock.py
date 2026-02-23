@@ -117,7 +117,6 @@ if search_term:
                 best_match = search_res['quotes'][0]
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
-                news_data = search_res.get('news', [])
 
             # 2. 메타 데이터 및 현재가 수집 (1일치 데이터로 메타 확인)
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -212,12 +211,11 @@ if search_term:
                     v = volumes[i] if volumes[i] is not None else 0
                     clean_data.append((dt_objects[i], opens[i], highs[i], lows[i], closes[i], v))
 
-            # 이평선 선행 계산 (잘라내기 전 전체 데이터 기준)
+            # 이평선 선행 계산
             full_prices = [row[4] for row in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
 
-            # 결과 담을 리스트 명시적 선언
             f_dates = []
             f_opens = []
             f_highs = []
@@ -227,18 +225,15 @@ if search_term:
             f_ma20 = []
             f_ma60 = []
 
-            # 6. 미국장 시차를 고려한 데이터 자르기 로직 (압축 해제)
+            # 6. 데이터 자르기 로직
             if timeframe == "1일" and len(clean_data) > 0:
                 session_start_idx = 0
-                
-                # 역순으로 탐색하여 시간 차이가 4시간 이상(장이 닫힌 시간)인 곳을 찾음
                 for i in range(len(clean_data) - 1, 0, -1):
                     time_diff = clean_data[i][0] - clean_data[i-1][0]
-                    if time_diff.total_seconds() > 4 * 3600: # 4시간 = 14400초
+                    if time_diff.total_seconds() > 4 * 3600: 
                         session_start_idx = i
                         break
                 
-                # 가장 최근 장(Session)이 열린 시점부터 끝까지만 가져옴
                 for i in range(session_start_idx, len(clean_data)):
                     f_dates.append(clean_data[i][0])
                     f_opens.append(clean_data[i][1])
@@ -282,7 +277,6 @@ if search_term:
                     line=dict(color='#00b4d8', width=3), connectgaps=True
                 ), secondary_y=False)
 
-            # 이평선 네이밍 및 추가
             if timeframe in ["1일", "1주일"]:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
@@ -298,7 +292,6 @@ if search_term:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
-            # 거래량 차트
             vol_colors = []
             for i in range(len(f_closes)):
                 if i > 0 and f_closes[i] < f_closes[i-1]:
@@ -316,11 +309,10 @@ if search_term:
             )
             fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
             
-            # 거래량 Y축 높이 설정 방어 코드
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
             
-           # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
+            # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
             if timeframe in ["1달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
@@ -343,8 +335,8 @@ if search_term:
                         
                         # 카드 형태의 깔끔한 UI 적용
                         st.markdown(f"""
-                            <div style="background: #f8f9fa; border-left: 4px solid #1E88E5; padding: 15px; border-radius: 5px; margin-bottom: 10px;">
-                                <a href="{n['link']}" target="_blank" style="font-size: 16px; font-weight: bold; color: #1E88E5; text-decoration: none;">
+                            <div class="news-card">
+                                <a class="news-title" href="{n['link']}" target="_blank">
                                     📰 {translated_title}
                                 </a>
                                 <div style="font-size: 13px; color: #666; margin-top: 5px;">
@@ -365,21 +357,3 @@ if live_mode and search_term:
     time.sleep(5)
     st.rerun()
     
-            # 8. 뉴스 렌더링
-            if original_name not in vip_dict and 'news_data' in locals() and news_data:
-                st.markdown("### 📰 실시간 관련 뉴스 (자동 번역)")
-                for n in news_data[:3]:
-                    st.markdown(f"""
-                        <div class="news-card">
-                            <a class="news-title" href="{n['link']}" target="_blank">🔗 {translate_to_korean(n['title'])}</a><br>
-                            <span style="font-size: 13px; color: #555;">출처: {n['publisher']} | 원문: {n['title']}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-
-    except Exception as e:
-        dashboard_container.error(f"❌ 데이터 연산 오류: {e}")
-
-# 라이브 모드 실행
-if live_mode and search_term:
-    time.sleep(5)
-    st.rerun()
