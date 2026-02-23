@@ -5,6 +5,8 @@ import time
 from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import xml.etree.ElementTree as ET
+import urllib.parse
 
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
@@ -30,16 +32,6 @@ def translate_to_english(text):
         return res.json()[0][0][0], True
     except: 
         return text, False 
-
-def translate_to_korean(text):
-    if not text: 
-        return ""
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q={text}"
-        res = requests.get(url, timeout=3)
-        return res.json()[0][0][0]
-    except: 
-        return text
 
 def calc_ma(prices, window):
     ma = []
@@ -118,7 +110,7 @@ if search_term:
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            # 2. 메타 데이터 및 현재가 수집 (1일치 데이터로 메타 확인)
+            # 2. 메타 데이터 및 현재가 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = requests.get(url_1y, headers=headers).json()
             
@@ -135,7 +127,6 @@ if search_term:
                 prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
                 today_volume = meta.get('regularMarketVolume', 0)
                 
-                # 통화 단위 확보
                 currency = meta.get('currency', 'USD') 
                 
                 day_change = price - prev_close
@@ -195,7 +186,6 @@ if search_term:
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
             chart_res = requests.get(chart_url, headers=headers).json()['chart']['result'][0]
             
-            # KST 시간 변환
             dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res['timestamp']]
             quote = chart_res['indicators']['quote'][0]
             opens = quote.get('open', [])
@@ -204,28 +194,18 @@ if search_term:
             closes = quote.get('close', [])
             volumes = quote.get('volume', [])
             
-            # 유효한 데이터만 필터링
             clean_data = []
             for i in range(len(dt_objects)):
                 if closes[i] is not None:
                     v = volumes[i] if volumes[i] is not None else 0
                     clean_data.append((dt_objects[i], opens[i], highs[i], lows[i], closes[i], v))
 
-            # 이평선 선행 계산
             full_prices = [row[4] for row in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
 
-            f_dates = []
-            f_opens = []
-            f_highs = []
-            f_lows = []
-            f_closes = []
-            f_volumes = []
-            f_ma20 = []
-            f_ma60 = []
+            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes, f_ma20, f_ma60 = [], [], [], [], [], [], [], []
 
-            # 6. 데이터 자르기 로직
             if timeframe == "1일" and len(clean_data) > 0:
                 session_start_idx = 0
                 for i in range(len(clean_data) - 1, 0, -1):
@@ -285,12 +265,6 @@ if search_term:
             elif timeframe in ["6달", "1년"]:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
-            elif timeframe in ["3년", "5년"]:
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
-            elif timeframe == "10년":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
             vol_colors = []
             for i in range(len(f_closes)):
@@ -312,40 +286,52 @@ if search_term:
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
             
-            # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
             if timeframe in ["1달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- 📰 개별 종목 실시간 뉴스 (모든 종목 공통 적용 & 자동 번역) ---
+            # --- 📰 진짜 한국 언론사 뉴스 가져오기 (Google News KR) ---
             st.markdown("---")
-            st.markdown(f"### 📰 {official_name} 최신 뉴스")
+            st.markdown(f"### 📰 {original_name} 최신 뉴스")
             
             try:
-                # 심볼(ticker)을 기반으로 해당 기업의 최신 뉴스만 검색
-                news_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol}"
-                news_res = requests.get(news_url, headers=headers).json()
-                news_list = news_res.get('news', [])
+                # 검색어에 '주식'을 붙여서 마약 같은 헛소리 기사 차단
+                clean_search_term = original_name.split('(')[0].strip() # '토요타 (미국)' 같은 경우 '토요타'만 추출
+                search_query = f"{clean_search_term} 주식"
+                encoded_query = urllib.parse.quote(search_query)
                 
-                if news_list:
-                    for n in news_list[:5]: # 가장 최신 기사 5개만 깔끔하게 노출
-                        # 번역 함수를 통해 한국어 제목 생성
-                        translated_title = translate_to_korean(n['title'])
+                # 구글 뉴스 한국어 전용 RSS 피드
+                news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
+                news_res = requests.get(news_url, headers=headers)
+                
+                # XML 파싱
+                root = ET.fromstring(news_res.content)
+                items = root.findall('.//item')
+                
+                if items:
+                    for item in items[:5]: # 최신 5개
+                        title = item.find('title').text
+                        link = item.find('link').text
+                        source_elem = item.find('source')
+                        source = source_elem.text if source_elem is not None else "구글 뉴스"
                         
-                        # 카드 형태의 깔끔한 UI 적용
+                        # 제목 끝에 언론사 이름이 ' - 언론사명' 형식으로 붙는 것 제거 (더 깔끔하게)
+                        if " - " in title:
+                            title = " - ".join(title.split(" - ")[:-1])
+                            
                         st.markdown(f"""
                             <div class="news-card">
-                                <a class="news-title" href="{n['link']}" target="_blank">
-                                    📰 {translated_title}
+                                <a class="news-title" href="{link}" target="_blank">
+                                    📰 {title}
                                 </a>
                                 <div style="font-size: 13px; color: #666; margin-top: 5px;">
-                                    🏢 출처: {n['publisher']} | 🔤 원문: {n['title']}
+                                    🏢 출처: {source}
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
                 else:
-                    st.info("💡 현재 이 종목과 관련된 최신 뉴스가 없습니다.")
+                    st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
             except Exception as e:
                 st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
 
