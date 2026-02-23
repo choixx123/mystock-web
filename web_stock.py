@@ -320,12 +320,51 @@ if search_term:
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
             
-            # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
+           # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
             if timeframe in ["1달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
 
+            # --- 📰 개별 종목 실시간 뉴스 (모든 종목 공통 적용 & 자동 번역) ---
+            st.markdown("---")
+            st.markdown(f"### 📰 {official_name} 최신 뉴스")
+            
+            try:
+                # 심볼(ticker)을 기반으로 해당 기업의 최신 뉴스만 검색
+                news_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol}"
+                news_res = requests.get(news_url, headers=headers).json()
+                news_list = news_res.get('news', [])
+                
+                if news_list:
+                    for n in news_list[:5]: # 가장 최신 기사 5개만 깔끔하게 노출
+                        # 번역 함수를 통해 한국어 제목 생성
+                        translated_title = translate_to_korean(n['title'])
+                        
+                        # 카드 형태의 깔끔한 UI 적용
+                        st.markdown(f"""
+                            <div style="background: #f8f9fa; border-left: 4px solid #1E88E5; padding: 15px; border-radius: 5px; margin-bottom: 10px;">
+                                <a href="{n['link']}" target="_blank" style="font-size: 16px; font-weight: bold; color: #1E88E5; text-decoration: none;">
+                                    📰 {translated_title}
+                                </a>
+                                <div style="font-size: 13px; color: #666; margin-top: 5px;">
+                                    🏢 출처: {n['publisher']} | 🔤 원문: {n['title']}
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("💡 현재 이 종목과 관련된 최신 뉴스가 없습니다.")
+            except Exception as e:
+                st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
+
+    except Exception as e:
+        dashboard_container.error(f"❌ 데이터 연산 오류: {e}")
+
+# 라이브 모드 실행
+if live_mode and search_term:
+    time.sleep(5)
+    st.rerun()
+    
             # 8. 뉴스 렌더링
             if original_name not in vip_dict and 'news_data' in locals() and news_data:
                 st.markdown("### 📰 실시간 관련 뉴스 (자동 번역)")
