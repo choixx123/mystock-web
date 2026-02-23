@@ -320,8 +320,8 @@ if search_term:
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
             
-            # 주말 갭 제거
-            if timeframe in ["1일", "1주일", "1달", "6달", "1년"]:
+            # 주말 갭 제거 (미국장 1일치 금요일 새벽 잘림 방지)
+            if timeframe in ["1달", "6달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
@@ -344,4 +344,3 @@ if search_term:
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
-    
