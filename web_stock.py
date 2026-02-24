@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import urllib.parse
-import yfinance as yf  
 
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
@@ -150,55 +149,47 @@ if search_term:
                 official_name = best_match.get('shortname', english_name)
 
             market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
-            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
+            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "요약 데이터를 불러올 수 없습니다."
 
-            # 💡 [핵심 추가] yfinance에 '일반 크롬 브라우저' 위장 세션을 씌워서 서버 IP 차단 우회
+            # 💡 [핵심 교체] 막혀버린 yfinance 대신, 우회 확률이 높은 Yahoo의 가벼운 API 2개로 직접 찌름
+            # 1. 시가총액, PER, 배당 (v7 quote 통로)
             try:
-                session = requests.Session()
-                session.headers.update({
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-                })
-                
-                yf_ticker = yf.Ticker(symbol, session=session)
-                info = yf_ticker.info
-                
-                # 만약 info 딕셔너리가 비어있으면 에러를 발생시켜서 디버그 메시지를 띄우게 함
-                if not info or 'symbol' not in info:
-                    raise ValueError("야후가 클라우드 IP를 일시적으로 튕겨냈습니다.")
-
-                mc_raw = info.get('marketCap')
-                if mc_raw:
-                    if symbol.endswith(".KS") or symbol.endswith(".KQ"):
-                        market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
-                    else:
-                        if mc_raw >= 1000000000000:
-                            market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
-                        elif mc_raw >= 1000000000:
-                            market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
+                quote_url = f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+                q_res = fetch_json(quote_url, headers)
+                if q_res and q_res.get('quoteResponse') and q_res['quoteResponse'].get('result'):
+                    info = q_res['quoteResponse']['result'][0]
+                    
+                    mc_raw = info.get('marketCap')
+                    if mc_raw:
+                        if symbol.endswith(".KS") or symbol.endswith(".KQ"): market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
                         else:
-                            market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)" 
+                            if mc_raw >= 1000000000000: market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
+                            elif mc_raw >= 1000000000: market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
+                            else: market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)"
+                            
+                    pe_raw = info.get('trailingPE', info.get('forwardPE'))
+                    if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
+                    
+                    div_raw = info.get('trailingAnnualDividendYield', info.get('dividendYield'))
+                    if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
+            except Exception: pass
 
-                pe_raw = info.get('trailingPE', info.get('forwardPE'))
-                if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
-                
-                div_raw = info.get('dividendYield')
-                if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
+            # 2. 기업 개요 및 업종 (v11 quoteSummary 통로)
+            try:
+                profile_url = f"https://query2.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=summaryProfile"
+                p_res = fetch_json(profile_url, headers)
+                if p_res and p_res.get('quoteSummary') and p_res['quoteSummary'].get('result'):
+                    profile = p_res['quoteSummary']['result'][0].get('summaryProfile', {})
+                    sector = profile.get('sector', 'N/A')
+                    industry = profile.get('industry', 'N/A')
+                    summary_eng = profile.get('longBusinessSummary', '')
+                    
+                    if sector != 'N/A': sector_kr = translate_to_korean(sector)
+                    if industry != 'N/A': industry_kr = translate_to_korean(industry)
+                    if summary_eng: summary_kr = translate_to_korean(summary_eng[:350] + "...")
+            except Exception: pass
 
-                sector = info.get('sector', 'N/A')
-                industry = info.get('industry', 'N/A')
-                summary_eng = info.get('longBusinessSummary', '')
-                
-                if sector != 'N/A': sector_kr = translate_to_korean(sector)
-                if industry != 'N/A': industry_kr = translate_to_korean(industry)
-                if summary_eng:
-                    summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
-            
-            except Exception as e:
-                # 💡 만약 또 튕기면, 사용자 화면에 무슨 이유로 튕겼는지 작게 표시 (원인 분석용)
-                st.warning(f"⚠️ 야후 보안 지연: 상세 데이터를 일시적으로 불러올 수 없습니다. (디버그: {e})")
-                pass
-
-            # 주가 및 차트 데이터 수집 (여긴 기존 빠르고 안정적인 API 유지)
+            # 주가 및 차트 데이터 수집 (안 막히고 잘 되는 통로)
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = fetch_json(url_1y, headers)
             
@@ -456,4 +447,4 @@ if search_term:
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
-                            
+    
