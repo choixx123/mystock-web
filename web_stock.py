@@ -52,7 +52,6 @@ def calc_ma(prices, window):
             ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
-# 💡 RSI(상대강도지수) 계산 함수 추가
 def calc_rsi(prices, period=14):
     rsi = [None] * len(prices)
     if len(prices) < period + 1: return rsi
@@ -121,7 +120,8 @@ timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1�
 dashboard_container = st.empty()
 
 if search_term:
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    # 💡 야후 API 차단을 막기 위해 더 강력한 User-Agent 설정
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
         with dashboard_container.container():
             original_name = search_term.strip()
@@ -148,49 +148,57 @@ if search_term:
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            # 2. 메타 데이터 및 상세 재무/기업 프로필 수집 (에러 방지용 try-except 적용)
+            # 2. 메타 데이터 및 상세 재무/기업 프로필 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = requests.get(url_1y, headers=headers).json()
             
-            # 추가 데이터: 기업 프로필 및 재무 지표 (시총, PER, 배당)
-            profile_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryProfile,summaryDetail"
-            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "N/A"
+            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
             sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
             
+            # 💡 [핵심 수정 1] 시총, PER, 배당률을 가장 안정적인 v7 quote API에서 가져오기
             try:
-                prof_res = requests.get(profile_url, headers=headers).json().get('quoteSummary', {}).get('result', [])
-                if prof_res:
-                    summary_detail = prof_res[0].get('summaryDetail', {})
-                    summary_profile = prof_res[0].get('summaryProfile', {})
+                quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+                quote_res = requests.get(quote_url, headers=headers).json()
+                if quote_res.get('quoteResponse', {}).get('result'):
+                    q_data = quote_res['quoteResponse']['result'][0]
                     
-                    # 시가총액 (포맷팅 지원)
-                    mc_raw = summary_detail.get('marketCap', {}).get('raw')
+                    # 시가총액 포맷팅 (조 단위, 빌리언/밀리언 단위 깔끔하게)
+                    mc_raw = q_data.get('marketCap')
                     if mc_raw:
                         if symbol.endswith(".KS") or symbol.endswith(".KQ"):
                             market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
                         else:
-                            market_cap_str = summary_detail.get('marketCap', {}).get('fmt', f"{mc_raw}")
-                            
-                    # PER (주가수익비율)
-                    pe_raw = summary_detail.get('trailingPE', {}).get('raw')
-                    pe_ratio_str = f"{pe_raw:.2f} 배" if pe_raw else "N/A (적자 등)"
+                            if mc_raw >= 1000000000000:
+                                market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
+                            elif mc_raw >= 1000000000:
+                                market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
+                            else:
+                                market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)" 
+                                
+                    pe_raw = q_data.get('trailingPE')
+                    if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
                     
-                    # 배당수익률
-                    div_raw = summary_detail.get('dividendYield', {}).get('raw')
-                    div_yield_str = f"{div_raw * 100:.2f}%" if div_raw else "배당 없음"
-                    
-                    # 기업 프로필 번역
-                    sector = summary_profile.get('sector', 'N/A')
-                    industry = summary_profile.get('industry', 'N/A')
-                    summary_eng = summary_profile.get('longBusinessSummary', '')
+                    div_raw = q_data.get('trailingAnnualDividendYield')
+                    if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
+            except:
+                pass
+
+            # 💡 [핵심 수정 2] 기업 개요를 더 확실한 assetProfile 모듈에서 가져오기
+            try:
+                profile_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=assetProfile"
+                prof_res = requests.get(profile_url, headers=headers).json()
+                if prof_res.get('quoteSummary', {}).get('result'):
+                    profile_data = prof_res['quoteSummary']['result'][0].get('assetProfile', {})
+                    sector = profile_data.get('sector', 'N/A')
+                    industry = profile_data.get('industry', 'N/A')
+                    summary_eng = profile_data.get('longBusinessSummary', '')
                     
                     if sector != 'N/A': sector_kr = translate_to_korean(sector)
                     if industry != 'N/A': industry_kr = translate_to_korean(industry)
                     if summary_eng:
-                        # 번역기 과부하 방지를 위해 요약본 350자까지만 자르고 번역
                         summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
-            except Exception as e:
-                pass # 데이터가 없으면 기본값(N/A) 유지
+            except:
+                pass
             
             # 주가 데이터 수집
             if 'chart' in res_1y_data and res_1y_data['chart']['result']:
@@ -228,13 +236,12 @@ if search_term:
                 price_str = f"{c_symbol}{price:,.2f}"
                 change_val_str = f"{day_change:+,.2f} {c_symbol}" 
                 highlow_52_str = f"{c_symbol}{high_52:,.2f} / {c_symbol}{low_52:,.2f}" 
-                if market_cap_str != "N/A" and "조 원" not in market_cap_str:
+                if market_cap_str != "N/A" and "원" not in market_cap_str:
                     market_cap_str = f"{c_symbol}{market_cap_str}"
 
             # 4. 상단 지표(KPI) 및 🏢 기업 상세 정보 렌더링
             st.subheader(f"{official_name} ({symbol})")
             
-            # 기업 정보 박스 (디자인 해치지 않게 박스 처리)
             st.markdown(f"""
                 <div class="company-profile">
                     <strong>🏢 업종:</strong> {sector_kr} / {industry_kr} <br>
@@ -242,7 +249,8 @@ if search_term:
                 </div>
             """, unsafe_allow_html=True)
 
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            # 💡 [핵심 수정 3] 52주 최고/최저가 긴 칸(kpi2)에 1.6배 더 넓은 공간을 할당해서 '...' 방지
+            kpi1, kpi2, kpi3, kpi4 = st.columns([1.0, 1.6, 1.1, 1.3])
             with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
             with kpi2: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
             with kpi3: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
@@ -256,8 +264,9 @@ if search_term:
                 else:
                     st.empty() 
 
-            st.write("") # 간격 띄우기
-            fin1, fin2, fin3, fin4 = st.columns(4)
+            st.write("") 
+            # 재무 지표 칸 비율도 보기 좋게 조정
+            fin1, fin2, fin3, fin4 = st.columns([1.2, 1.0, 1.0, 1.8])
             with fin1: st.metric(label="🏢 시가총액 (규모)", value=market_cap_str)
             with fin2: st.metric(label="📈 PER (수익성)", value=pe_ratio_str)
             with fin3: st.metric(label="💸 배당수익률", value=div_yield_str)
@@ -285,11 +294,10 @@ if search_term:
                     v = volumes[i] if volumes[i] is not None else 0
                     clean_data.append((dt_objects[i], opens[i], highs[i], lows[i], closes[i], v))
 
-            # 지표 계산 선행 (RSI 추가)
             full_prices = [row[4] for row in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
-            rsi_full = calc_rsi(full_prices, 14) # RSI 14일선 전체 계산
+            rsi_full = calc_rsi(full_prices, 14) 
 
             f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes, f_ma20, f_ma60, f_rsi = [], [], [], [], [], [], [], [], []
 
@@ -329,10 +337,10 @@ if search_term:
                         f_ma60.append(ma60_full[i])
                         f_rsi.append(rsi_full[i])
 
-            # 7. 차트 그리기 (💡 RSI 추가를 위해 2열로 화면 분할)
+            # 7. 차트 그리기 
             fig = make_subplots(
                 rows=2, cols=1, shared_xaxes=True, 
-                vertical_spacing=0.03, row_heights=[0.75, 0.25], # 위가 주가(75%), 아래가 RSI(25%)
+                vertical_spacing=0.03, row_heights=[0.75, 0.25],
                 specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
             )
             
@@ -340,7 +348,6 @@ if search_term:
             up_color = '#ff4b4b' if is_kr else '#00cc96'
             down_color = '#00b4d8' if is_kr else '#ff4b4b'
 
-            # --- Row 1: 주가 캔들 및 이평선 ---
             if use_candle:
                 fig.add_trace(go.Candlestick(
                     x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
@@ -382,31 +389,26 @@ if search_term:
                 else:
                     f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
-            # 거래량 (우측 Y축 활용)
             fig.add_trace(go.Bar(
                 x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
                 customdata=f_amounts_str, 
                 hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
             ), row=1, col=1, secondary_y=True)
             
-            # --- Row 2: RSI 지표 (전문가용 보조 지표) ---
             fig.add_trace(go.Scatter(
                 x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', 
                 line=dict(color='#9c27b0', width=1.5)
             ), row=2, col=1)
             
-            # 과열(70) / 침체(30) 기준선
             fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
             fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
 
-            # 레이아웃 정리
             fig.update_layout(
                 title=f"📈 {official_name} 차트 & 보조지표", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), xaxis_rangeslider_visible=False,
-                height=700 # 차트 전체 높이 살짝 키움 (RSI 공간 확보)
+                height=700 
             )
             
-            # Y축 설정
             fig.update_yaxes(title_text=f"주가 ({currency})", row=1, col=1, secondary_y=False)
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
@@ -417,7 +419,7 @@ if search_term:
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- 📰 진짜 한국 언론사 뉴스 가져오기 (Google News KR) ---
+            # --- 📰 진짜 한국 언론사 뉴스 가져오기 ---
             st.markdown("---")
             st.markdown(f"### 📰 {original_name} 최신 뉴스")
             
