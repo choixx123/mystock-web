@@ -23,13 +23,28 @@ vip_dict = {
     "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
+# 💡 [핵심 추가] 서버 통신 시 에러(차단)가 나도 앱이 죽지 않게 막아주는 방패 함수
+def fetch_json(url, headers, timeout=5):
+    try:
+        res = requests.get(url, headers=headers, timeout=timeout)
+        if res.status_code == 200:
+            try:
+                return res.json()
+            except ValueError:
+                return None # JSON 변환 실패 시 None 반환
+        return None # 200 정상 응답이 아닐 경우 None 반환
+    except Exception:
+        return None
+
 def translate_to_english(text):
     if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): 
         return text, True 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
         res = requests.get(url, timeout=3)
-        return res.json()[0][0][0], True
+        if res.status_code == 200:
+            return res.json()[0][0][0], True
+        return text, False
     except: 
         return text, False 
 
@@ -39,7 +54,9 @@ def translate_to_korean(text):
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q={text}"
         res = requests.get(url, timeout=3)
-        return res.json()[0][0][0]
+        if res.status_code == 200:
+            return res.json()[0][0][0]
+        return text
     except: 
         return text
 
@@ -120,8 +137,11 @@ timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1�
 dashboard_container = st.empty()
 
 if search_term:
-    # 💡 야후 API 차단을 막기 위해 더 강력한 User-Agent 설정
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
+    
     try:
         with dashboard_container.container():
             original_name = search_term.strip()
@@ -138,10 +158,10 @@ if search_term:
                     st.stop()
                     
                 search_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={english_name}"
-                search_res = requests.get(search_url, headers=headers).json()
+                search_res = fetch_json(search_url, headers)
                 
-                if not search_res.get('quotes') or len(search_res['quotes']) == 0:
-                    st.error(f"❌ '{original_name}' 정보가 없습니다.")
+                if not search_res or not search_res.get('quotes') or len(search_res['quotes']) == 0:
+                    st.error(f"❌ '{original_name}' 정보가 없거나 야후 서버가 응답하지 않습니다. (티커명으로 다시 시도해보세요)")
                     st.stop()
                     
                 best_match = search_res['quotes'][0]
@@ -150,19 +170,22 @@ if search_term:
 
             # 2. 메타 데이터 및 상세 재무/기업 프로필 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
-            res_1y_data = requests.get(url_1y, headers=headers).json()
+            res_1y_data = fetch_json(url_1y, headers)
+            
+            if not res_1y_data:
+                st.error("❌ 야후 파이낸스 서버 접속이 원활하지 않습니다 (일시적 차단). 잠시 후 다시 시도해주세요.")
+                st.stop()
             
             market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
             sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
             
-            # 💡 [핵심 수정 1] 시총, PER, 배당률을 가장 안정적인 v7 quote API에서 가져오기
+            # 시총, PER, 배당률
             try:
                 quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-                quote_res = requests.get(quote_url, headers=headers).json()
-                if quote_res.get('quoteResponse', {}).get('result'):
+                quote_res = fetch_json(quote_url, headers)
+                if quote_res and quote_res.get('quoteResponse', {}).get('result'):
                     q_data = quote_res['quoteResponse']['result'][0]
                     
-                    # 시가총액 포맷팅 (조 단위, 빌리언/밀리언 단위 깔끔하게)
                     mc_raw = q_data.get('marketCap')
                     if mc_raw:
                         if symbol.endswith(".KS") or symbol.endswith(".KQ"):
@@ -183,11 +206,11 @@ if search_term:
             except:
                 pass
 
-            # 💡 [핵심 수정 2] 기업 개요를 더 확실한 assetProfile 모듈에서 가져오기
+            # 기업 개요
             try:
                 profile_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=assetProfile"
-                prof_res = requests.get(profile_url, headers=headers).json()
-                if prof_res.get('quoteSummary', {}).get('result'):
+                prof_res = fetch_json(profile_url, headers)
+                if prof_res and prof_res.get('quoteSummary', {}).get('result'):
                     profile_data = prof_res['quoteSummary']['result'][0].get('assetProfile', {})
                     sector = profile_data.get('sector', 'N/A')
                     industry = profile_data.get('industry', 'N/A')
@@ -200,7 +223,7 @@ if search_term:
             except:
                 pass
             
-            # 주가 데이터 수집
+            # 주가 데이터 처리
             if 'chart' in res_1y_data and res_1y_data['chart']['result']:
                 result_1y = res_1y_data['chart']['result'][0]
                 meta = result_1y['meta']
@@ -222,7 +245,7 @@ if search_term:
                 high_52 = max(historical_high, price)
                 low_52 = min(historical_low, price) if historical_low > 0 else price
             else:
-                st.error("❌ 데이터를 불러올 수 없습니다.")
+                st.error("❌ 차트 데이터를 불러올 수 없습니다.")
                 st.stop()
 
             # 3. 통화 포맷팅
@@ -239,7 +262,7 @@ if search_term:
                 if market_cap_str != "N/A" and "원" not in market_cap_str:
                     market_cap_str = f"{c_symbol}{market_cap_str}"
 
-            # 4. 상단 지표(KPI) 및 🏢 기업 상세 정보 렌더링
+            # 4. 상단 지표(KPI) 렌더링
             st.subheader(f"{official_name} ({symbol})")
             
             st.markdown(f"""
@@ -249,7 +272,6 @@ if search_term:
                 </div>
             """, unsafe_allow_html=True)
 
-            # 💡 [핵심 수정 3] 52주 최고/최저가 긴 칸(kpi2)에 1.6배 더 넓은 공간을 할당해서 '...' 방지
             kpi1, kpi2, kpi3, kpi4 = st.columns([1.0, 1.6, 1.1, 1.3])
             with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
             with kpi2: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
@@ -257,15 +279,18 @@ if search_term:
             with kpi4: 
                 if currency != "KRW":
                     try:
-                        ex_rate = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X", headers=headers).json()['chart']['result'][0]['meta']['regularMarketPrice']
-                        st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
+                        ex_rate_res = fetch_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X", headers)
+                        if ex_rate_res:
+                            ex_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
+                            st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
+                        else:
+                            st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                     except:
-                        st.metric(label="🇰🇷 원화 환산가", value="계산 불가")
+                        st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                 else:
                     st.empty() 
 
             st.write("") 
-            # 재무 지표 칸 비율도 보기 좋게 조정
             fin1, fin2, fin3, fin4 = st.columns([1.2, 1.0, 1.0, 1.8])
             with fin1: st.metric(label="🏢 시가총액 (규모)", value=market_cap_str)
             with fin2: st.metric(label="📈 PER (수익성)", value=pe_ratio_str)
@@ -278,9 +303,15 @@ if search_term:
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
             
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
-            chart_res = requests.get(chart_url, headers=headers).json()['chart']['result'][0]
+            chart_res_json = fetch_json(chart_url, headers)
             
-            dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res['timestamp']]
+            if not chart_res_json:
+                st.error("❌ 선택한 기간의 차트 데이터를 불러올 수 없습니다.")
+                st.stop()
+                
+            chart_res = chart_res_json['chart']['result'][0]
+            
+            dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res.get('timestamp', [])]
             quote = chart_res['indicators']['quote'][0]
             opens = quote.get('open', [])
             highs = quote.get('high', [])
@@ -290,9 +321,12 @@ if search_term:
             
             clean_data = []
             for i in range(len(dt_objects)):
-                if closes[i] is not None:
-                    v = volumes[i] if volumes[i] is not None else 0
-                    clean_data.append((dt_objects[i], opens[i], highs[i], lows[i], closes[i], v))
+                if i < len(closes) and closes[i] is not None:
+                    v = volumes[i] if (i < len(volumes) and volumes[i] is not None) else 0
+                    o = opens[i] if i < len(opens) else closes[i]
+                    h = highs[i] if i < len(highs) else closes[i]
+                    l = lows[i] if i < len(lows) else closes[i]
+                    clean_data.append((dt_objects[i], o, h, l, closes[i], v))
 
             full_prices = [row[4] for row in clean_data]
             ma20_full = calc_ma(full_prices, 20)
@@ -348,29 +382,29 @@ if search_term:
             up_color = '#ff4b4b' if is_kr else '#00cc96'
             down_color = '#00b4d8' if is_kr else '#ff4b4b'
 
-            if use_candle:
+            if use_candle and len(f_dates) > 0:
                 fig.add_trace(go.Candlestick(
                     x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
                     increasing_line_color=up_color, decreasing_line_color=down_color, name='캔들'
                 ), row=1, col=1, secondary_y=False)
-            else:
+            elif len(f_dates) > 0:
                 fig.add_trace(go.Scatter(
                     x=f_dates, y=f_closes, mode='lines', name='주가', 
                     line=dict(color='#00b4d8', width=3), connectgaps=True
                 ), row=1, col=1, secondary_y=False)
 
-            if timeframe in ["1일", "1주일"]:
+            if timeframe in ["1일", "1주일"] and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "1달":
+            elif timeframe == "1달" and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "1년":
+            elif timeframe == "1년" and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "5년":
+            elif timeframe == "5년" and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "10년":
+            elif timeframe == "10년" and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
 
@@ -389,19 +423,20 @@ if search_term:
                 else:
                     f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
-            fig.add_trace(go.Bar(
-                x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
-                customdata=f_amounts_str, 
-                hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
-            ), row=1, col=1, secondary_y=True)
-            
-            fig.add_trace(go.Scatter(
-                x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', 
-                line=dict(color='#9c27b0', width=1.5)
-            ), row=2, col=1)
-            
-            fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
-            fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
+            if len(f_dates) > 0:
+                fig.add_trace(go.Bar(
+                    x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
+                    customdata=f_amounts_str, 
+                    hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
+                ), row=1, col=1, secondary_y=True)
+                
+                fig.add_trace(go.Scatter(
+                    x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', 
+                    line=dict(color='#9c27b0', width=1.5)
+                ), row=2, col=1)
+                
+                fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
+                fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
 
             fig.update_layout(
                 title=f"📈 {official_name} 차트 & 보조지표", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
@@ -431,31 +466,34 @@ if search_term:
                 news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
                 news_res = requests.get(news_url, headers=headers)
                 
-                root = ET.fromstring(news_res.content)
-                items = root.findall('.//item')
-                
-                if items:
-                    for item in items[:5]:
-                        title = item.find('title').text
-                        link = item.find('link').text
-                        source_elem = item.find('source')
-                        source = source_elem.text if source_elem is not None else "구글 뉴스"
-                        
-                        if " - " in title:
-                            title = " - ".join(title.split(" - ")[:-1])
+                if news_res.status_code == 200:
+                    root = ET.fromstring(news_res.content)
+                    items = root.findall('.//item')
+                    
+                    if items:
+                        for item in items[:5]:
+                            title = item.find('title').text
+                            link = item.find('link').text
+                            source_elem = item.find('source')
+                            source = source_elem.text if source_elem is not None else "구글 뉴스"
                             
-                        st.markdown(f"""
-                            <div class="news-card">
-                                <a class="news-title" href="{link}" target="_blank">
-                                    📰 {title}
-                                </a>
-                                <div style="font-size: 13px; color: #666; margin-top: 5px;">
-                                    🏢 출처: {source}
+                            if " - " in title:
+                                title = " - ".join(title.split(" - ")[:-1])
+                                
+                            st.markdown(f"""
+                                <div class="news-card">
+                                    <a class="news-title" href="{link}" target="_blank">
+                                        📰 {title}
+                                    </a>
+                                    <div style="font-size: 13px; color: #666; margin-top: 5px;">
+                                        🏢 출처: {source}
+                                    </div>
                                 </div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
                 else:
-                    st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
+                    st.warning("⚠️ 뉴스 서버 응답이 지연되고 있습니다.")
             except Exception as e:
                 st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
 
