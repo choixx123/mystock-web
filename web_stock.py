@@ -267,7 +267,7 @@ if search_term:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
             vol_colors = []
-            f_amounts_str = [] # 거래 대금을 저장할 리스트
+            f_amounts_str = [] 
             
             for i in range(len(f_closes)):
                 if i > 0 and f_closes[i] < f_closes[i-1]:
@@ -282,10 +282,11 @@ if search_term:
                 else:
                     f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
+            # 💡 [수정됨] 툴팁(hovertemplate)에 '거래량:' 이라는 명칭을 다시 살려 넣음
             fig.add_trace(go.Bar(
                 x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
-                customdata=f_amounts_str, # 계산된 거래 대금 데이터 연결
-                hovertemplate="%{y:,} 주<br>대금: %{customdata}<extra></extra>" # 툴팁에 거래 대금 추가
+                customdata=f_amounts_str, 
+                hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
             ), secondary_y=True)
             
             fig.update_layout(
