@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import urllib.parse
+import yfinance as yf  # 💡 [핵심 도입] 야후 보안 토큰(Crumb)을 자동으로 뚫어주는 공식 라이브러리
 
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
@@ -23,50 +24,38 @@ vip_dict = {
     "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
-# 💡 [핵심 추가] 서버 통신 시 에러(차단)가 나도 앱이 죽지 않게 막아주는 방패 함수
 def fetch_json(url, headers, timeout=5):
     try:
         res = requests.get(url, headers=headers, timeout=timeout)
         if res.status_code == 200:
-            try:
-                return res.json()
-            except ValueError:
-                return None # JSON 변환 실패 시 None 반환
-        return None # 200 정상 응답이 아닐 경우 None 반환
-    except Exception:
+            try: return res.json()
+            except ValueError: return None
         return None
+    except Exception: return None
 
 def translate_to_english(text):
-    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): 
-        return text, True 
+    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): return text, True 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
         res = requests.get(url, timeout=3)
-        if res.status_code == 200:
-            return res.json()[0][0][0], True
+        if res.status_code == 200: return res.json()[0][0][0], True
         return text, False
-    except: 
-        return text, False 
+    except: return text, False 
 
 def translate_to_korean(text):
-    if not text or text == "N/A": 
-        return text
+    if not text or text == "N/A": return text
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q={text}"
         res = requests.get(url, timeout=3)
-        if res.status_code == 200:
-            return res.json()[0][0][0]
+        if res.status_code == 200: return res.json()[0][0][0]
         return text
-    except: 
-        return text
+    except: return text
 
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
-        if i < window - 1: 
-            ma.append(None)
-        else: 
-            ma.append(sum(prices[i-window+1:i+1]) / window)
+        if i < window - 1: ma.append(None)
+        else: ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
 def calc_rsi(prices, period=14):
@@ -89,8 +78,7 @@ def calc_rsi(prices, period=14):
             avg_gain = (avg_gain * (period - 1) + gain) / period
             avg_loss = (avg_loss * (period - 1) + loss) / period
 
-        if avg_loss == 0:
-            rsi[i] = 100
+        if avg_loss == 0: rsi[i] = 100
         else:
             rs = avg_gain / avg_loss
             rsi[i] = 100 - (100 / (1 + rs))
@@ -108,11 +96,8 @@ st.markdown("""
 
 st.title("🌍 글로벌 주식 터미널")
 
-# 세션 상태 초기화
-if "search_input" not in st.session_state: 
-    st.session_state.search_input = "테슬라"
-if "vip_dropdown" not in st.session_state: 
-    st.session_state.vip_dropdown = "🔽 주요 종목 선택"
+if "search_input" not in st.session_state: st.session_state.search_input = "테슬라"
+if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 def apply_vip_search():
     selected = st.session_state.vip_dropdown
@@ -120,12 +105,9 @@ def apply_vip_search():
         st.session_state.search_input = selected
         st.session_state.vip_dropdown = "🔽 주요 종목 선택" 
 
-# 상단 검색 및 토글 UI
 col1, col2, col3 = st.columns([4, 2, 2])
-with col1: 
-    st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
-with col2: 
-    st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
+with col1: st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
+with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
     st.write("") 
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
@@ -148,7 +130,6 @@ if search_term:
             symbol = ""
             official_name = original_name
             
-            # 1. 종목 심볼 확인 및 번역
             if original_name in vip_dict:
                 symbol = vip_dict[original_name]
             else:
@@ -161,94 +142,78 @@ if search_term:
                 search_res = fetch_json(search_url, headers)
                 
                 if not search_res or not search_res.get('quotes') or len(search_res['quotes']) == 0:
-                    st.error(f"❌ '{original_name}' 정보가 없거나 야후 서버가 응답하지 않습니다. (티커명으로 다시 시도해보세요)")
+                    st.error(f"❌ '{original_name}' 정보가 없거나 야후 서버가 응답하지 않습니다.")
                     st.stop()
                     
                 best_match = search_res['quotes'][0]
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            # 2. 메타 데이터 및 상세 재무/기업 프로필 수집
+            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
+            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
+
+            # 💡 [핵심 수정] yfinance를 활용해 야후의 Crumb 보안을 뚫고 데이터를 안전하게 추출
+            try:
+                yf_ticker = yf.Ticker(symbol)
+                info = yf_ticker.info
+                
+                mc_raw = info.get('marketCap')
+                if mc_raw:
+                    if symbol.endswith(".KS") or symbol.endswith(".KQ"):
+                        market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
+                    else:
+                        if mc_raw >= 1000000000000:
+                            market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
+                        elif mc_raw >= 1000000000:
+                            market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
+                        else:
+                            market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)" 
+
+                pe_raw = info.get('trailingPE', info.get('forwardPE'))
+                if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
+                
+                div_raw = info.get('dividendYield')
+                if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
+
+                sector = info.get('sector', 'N/A')
+                industry = info.get('industry', 'N/A')
+                summary_eng = info.get('longBusinessSummary', '')
+                
+                if sector != 'N/A': sector_kr = translate_to_korean(sector)
+                if industry != 'N/A': industry_kr = translate_to_korean(industry)
+                if summary_eng:
+                    summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
+            except Exception as e:
+                pass # yfinance 지연 시에도 뻗지 않도록 패스
+
+            # 주가 및 차트 데이터 수집 (여긴 기존 빠르고 안정적인 API 유지)
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = fetch_json(url_1y, headers)
             
-            if not res_1y_data:
-                st.error("❌ 야후 파이낸스 서버 접속이 원활하지 않습니다 (일시적 차단). 잠시 후 다시 시도해주세요.")
+            if not res_1y_data or 'chart' not in res_1y_data or not res_1y_data['chart']['result']:
+                st.error("❌ 주가 데이터를 불러올 수 없습니다. 야후 서버 점검 중일 수 있습니다.")
                 st.stop()
+                
+            result_1y = res_1y_data['chart']['result'][0]
+            meta = result_1y['meta']
+            quotes_1y = result_1y['indicators']['quote'][0]
             
-            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
-            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
+            valid_closes = [p for p in quotes_1y.get('close', []) if p is not None]
+            valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
+            valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
             
-            # 시총, PER, 배당률
-            try:
-                quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-                quote_res = fetch_json(quote_url, headers)
-                if quote_res and quote_res.get('quoteResponse', {}).get('result'):
-                    q_data = quote_res['quoteResponse']['result'][0]
-                    
-                    mc_raw = q_data.get('marketCap')
-                    if mc_raw:
-                        if symbol.endswith(".KS") or symbol.endswith(".KQ"):
-                            market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
-                        else:
-                            if mc_raw >= 1000000000000:
-                                market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
-                            elif mc_raw >= 1000000000:
-                                market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
-                            else:
-                                market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)" 
-                                
-                    pe_raw = q_data.get('trailingPE')
-                    if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
-                    
-                    div_raw = q_data.get('trailingAnnualDividendYield')
-                    if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
-            except:
-                pass
+            price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
+            prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
+            today_volume = meta.get('regularMarketVolume', 0)
+            currency = meta.get('currency', 'USD') 
+            
+            day_change = price - prev_close
+            day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
+            historical_high = max(valid_highs) if valid_highs else 0
+            historical_low = min(valid_lows) if valid_lows else 0
+            high_52 = max(historical_high, price)
+            low_52 = min(historical_low, price) if historical_low > 0 else price
 
-            # 기업 개요
-            try:
-                profile_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=assetProfile"
-                prof_res = fetch_json(profile_url, headers)
-                if prof_res and prof_res.get('quoteSummary', {}).get('result'):
-                    profile_data = prof_res['quoteSummary']['result'][0].get('assetProfile', {})
-                    sector = profile_data.get('sector', 'N/A')
-                    industry = profile_data.get('industry', 'N/A')
-                    summary_eng = profile_data.get('longBusinessSummary', '')
-                    
-                    if sector != 'N/A': sector_kr = translate_to_korean(sector)
-                    if industry != 'N/A': industry_kr = translate_to_korean(industry)
-                    if summary_eng:
-                        summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
-            except:
-                pass
-            
-            # 주가 데이터 처리
-            if 'chart' in res_1y_data and res_1y_data['chart']['result']:
-                result_1y = res_1y_data['chart']['result'][0]
-                meta = result_1y['meta']
-                quotes_1y = result_1y['indicators']['quote'][0]
-                
-                valid_closes = [p for p in quotes_1y.get('close', []) if p is not None]
-                valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
-                valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
-                
-                price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
-                prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
-                today_volume = meta.get('regularMarketVolume', 0)
-                currency = meta.get('currency', 'USD') 
-                
-                day_change = price - prev_close
-                day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
-                historical_high = max(valid_highs) if valid_highs else 0
-                historical_low = min(valid_lows) if valid_lows else 0
-                high_52 = max(historical_high, price)
-                low_52 = min(historical_low, price) if historical_low > 0 else price
-            else:
-                st.error("❌ 차트 데이터를 불러올 수 없습니다.")
-                st.stop()
-
-            # 3. 통화 포맷팅
             c_symbol = "₩" if currency == "KRW" else "＄" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
             
             if currency == "KRW":
@@ -262,7 +227,6 @@ if search_term:
                 if market_cap_str != "N/A" and "원" not in market_cap_str:
                     market_cap_str = f"{c_symbol}{market_cap_str}"
 
-            # 4. 상단 지표(KPI) 렌더링
             st.subheader(f"{official_name} ({symbol})")
             
             st.markdown(f"""
@@ -283,12 +247,9 @@ if search_term:
                         if ex_rate_res:
                             ex_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
                             st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
-                        else:
-                            st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
-                    except:
-                        st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
-                else:
-                    st.empty() 
+                        else: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
+                    except: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
+                else: st.empty() 
 
             st.write("") 
             fin1, fin2, fin3, fin4 = st.columns([1.2, 1.0, 1.0, 1.8])
@@ -297,7 +258,6 @@ if search_term:
             with fin3: st.metric(label="💸 배당수익률", value=div_yield_str)
             with fin4: st.empty()
 
-            # 5. 차트 데이터 수집
             st.markdown("---")
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
@@ -310,7 +270,6 @@ if search_term:
                 st.stop()
                 
             chart_res = chart_res_json['chart']['result'][0]
-            
             dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res.get('timestamp', [])]
             quote = chart_res['indicators']['quote'][0]
             opens = quote.get('open', [])
@@ -371,7 +330,6 @@ if search_term:
                         f_ma60.append(ma60_full[i])
                         f_rsi.append(rsi_full[i])
 
-            # 7. 차트 그리기 
             fig = make_subplots(
                 rows=2, cols=1, shared_xaxes=True, 
                 vertical_spacing=0.03, row_heights=[0.75, 0.25],
@@ -396,11 +354,9 @@ if search_term:
             if timeframe in ["1일", "1주일"] and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "1달" and len(f_dates) > 0:
+            elif timeframe in ["1달", "1년"] and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-            elif timeframe == "1년" and len(f_dates) > 0:
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
+                if timeframe == "1년": fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
             elif timeframe == "5년" and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
@@ -408,20 +364,14 @@ if search_term:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
 
-            vol_colors = []
-            f_amounts_str = [] 
-            
+            vol_colors, f_amounts_str = [], []
             for i in range(len(f_closes)):
-                if i > 0 and f_closes[i] < f_closes[i-1]:
-                    vol_colors.append(down_color)
-                else:
-                    vol_colors.append(up_color)
+                if i > 0 and f_closes[i] < f_closes[i-1]: vol_colors.append(down_color)
+                else: vol_colors.append(up_color)
                 
                 amount = f_closes[i] * f_volumes[i]
-                if currency == "KRW":
-                    f_amounts_str.append(f"{int(amount):,} 원")
-                else:
-                    f_amounts_str.append(f"{c_symbol}{int(amount):,}")
+                if currency == "KRW": f_amounts_str.append(f"{int(amount):,} 원")
+                else: f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
             if len(f_dates) > 0:
                 fig.add_trace(go.Bar(
@@ -449,12 +399,10 @@ if search_term:
             fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
             fig.update_yaxes(title_text="RSI", range=[0, 100], tickvals=[30, 50, 70], row=2, col=1)
             
-            if timeframe in ["1달", "1년"]:
-                fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+            if timeframe in ["1달", "1년"]: fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- 📰 진짜 한국 언론사 뉴스 가져오기 ---
             st.markdown("---")
             st.markdown(f"### 📰 {original_name} 최신 뉴스")
             
@@ -477,30 +425,22 @@ if search_term:
                             source_elem = item.find('source')
                             source = source_elem.text if source_elem is not None else "구글 뉴스"
                             
-                            if " - " in title:
-                                title = " - ".join(title.split(" - ")[:-1])
+                            if " - " in title: title = " - ".join(title.split(" - ")[:-1])
                                 
                             st.markdown(f"""
                                 <div class="news-card">
-                                    <a class="news-title" href="{link}" target="_blank">
-                                        📰 {title}
-                                    </a>
-                                    <div style="font-size: 13px; color: #666; margin-top: 5px;">
-                                        🏢 출처: {source}
-                                    </div>
+                                    <a class="news-title" href="{link}" target="_blank">📰 {title}</a>
+                                    <div style="font-size: 13px; color: #666; margin-top: 5px;">🏢 출처: {source}</div>
                                 </div>
                             """, unsafe_allow_html=True)
-                    else:
-                        st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
-                else:
-                    st.warning("⚠️ 뉴스 서버 응답이 지연되고 있습니다.")
+                    else: st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
+                else: st.warning("⚠️ 뉴스 서버 응답이 지연되고 있습니다.")
             except Exception as e:
                 st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
 
     except Exception as e:
         dashboard_container.error(f"❌ 데이터 연산 오류: {e}")
 
-# 라이브 모드 실행
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
