@@ -33,6 +33,16 @@ def translate_to_english(text):
     except: 
         return text, False 
 
+def translate_to_korean(text):
+    if not text or text == "N/A": 
+        return text
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q={text}"
+        res = requests.get(url, timeout=3)
+        return res.json()[0][0][0]
+    except: 
+        return text
+
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
@@ -42,12 +52,41 @@ def calc_ma(prices, window):
             ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
 
+# 💡 RSI(상대강도지수) 계산 함수 추가
+def calc_rsi(prices, period=14):
+    rsi = [None] * len(prices)
+    if len(prices) < period + 1: return rsi
+    gains, losses = [], []
+    for i in range(1, len(prices)):
+        change = prices[i] - prices[i-1]
+        gains.append(change if change > 0 else 0)
+        losses.append(-change if change < 0 else 0)
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for i in range(period, len(prices)):
+        if i > period:
+            change = prices[i] - prices[i-1]
+            gain = change if change > 0 else 0
+            loss = -change if change < 0 else 0
+            avg_gain = (avg_gain * (period - 1) + gain) / period
+            avg_loss = (avg_loss * (period - 1) + loss) / period
+
+        if avg_loss == 0:
+            rsi[i] = 100
+        else:
+            rs = avg_gain / avg_loss
+            rsi[i] = 100 - (100 / (1 + rs))
+    return rsi
+
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
 st.markdown("""
     <style>
     .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
     .news-title { font-size: 16px; font-weight: bold; color: #1E88E5 !important; text-decoration: none; }
+    .company-profile { background: #ffffff; border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px; font-size: 14px; color: #444; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -77,11 +116,8 @@ with col3:
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
 
 search_term = st.session_state.search_input
-
-# 💡 6달, 3년 선택지 제거
 timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=2)
 
-# 깜빡임 방지용 대시보드 컨테이너
 dashboard_container = st.empty()
 
 if search_term:
@@ -112,10 +148,51 @@ if search_term:
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            # 2. 메타 데이터 및 현재가 수집
+            # 2. 메타 데이터 및 상세 재무/기업 프로필 수집 (에러 방지용 try-except 적용)
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = requests.get(url_1y, headers=headers).json()
             
+            # 추가 데이터: 기업 프로필 및 재무 지표 (시총, PER, 배당)
+            profile_url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryProfile,summaryDetail"
+            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "N/A"
+            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
+            
+            try:
+                prof_res = requests.get(profile_url, headers=headers).json().get('quoteSummary', {}).get('result', [])
+                if prof_res:
+                    summary_detail = prof_res[0].get('summaryDetail', {})
+                    summary_profile = prof_res[0].get('summaryProfile', {})
+                    
+                    # 시가총액 (포맷팅 지원)
+                    mc_raw = summary_detail.get('marketCap', {}).get('raw')
+                    if mc_raw:
+                        if symbol.endswith(".KS") or symbol.endswith(".KQ"):
+                            market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
+                        else:
+                            market_cap_str = summary_detail.get('marketCap', {}).get('fmt', f"{mc_raw}")
+                            
+                    # PER (주가수익비율)
+                    pe_raw = summary_detail.get('trailingPE', {}).get('raw')
+                    pe_ratio_str = f"{pe_raw:.2f} 배" if pe_raw else "N/A (적자 등)"
+                    
+                    # 배당수익률
+                    div_raw = summary_detail.get('dividendYield', {}).get('raw')
+                    div_yield_str = f"{div_raw * 100:.2f}%" if div_raw else "배당 없음"
+                    
+                    # 기업 프로필 번역
+                    sector = summary_profile.get('sector', 'N/A')
+                    industry = summary_profile.get('industry', 'N/A')
+                    summary_eng = summary_profile.get('longBusinessSummary', '')
+                    
+                    if sector != 'N/A': sector_kr = translate_to_korean(sector)
+                    if industry != 'N/A': industry_kr = translate_to_korean(industry)
+                    if summary_eng:
+                        # 번역기 과부하 방지를 위해 요약본 350자까지만 자르고 번역
+                        summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
+            except Exception as e:
+                pass # 데이터가 없으면 기본값(N/A) 유지
+            
+            # 주가 데이터 수집
             if 'chart' in res_1y_data and res_1y_data['chart']['result']:
                 result_1y = res_1y_data['chart']['result'][0]
                 meta = result_1y['meta']
@@ -128,12 +205,10 @@ if search_term:
                 price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
                 prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
                 today_volume = meta.get('regularMarketVolume', 0)
-                
                 currency = meta.get('currency', 'USD') 
                 
                 day_change = price - prev_close
                 day_change_pct = (day_change / prev_close) * 100 if prev_close else 0
-                
                 historical_high = max(valid_highs) if valid_highs else 0
                 historical_low = min(valid_lows) if valid_lows else 0
                 high_52 = max(historical_high, price)
@@ -153,36 +228,43 @@ if search_term:
                 price_str = f"{c_symbol}{price:,.2f}"
                 change_val_str = f"{day_change:+,.2f} {c_symbol}" 
                 highlow_52_str = f"{c_symbol}{high_52:,.2f} / {c_symbol}{low_52:,.2f}" 
+                if market_cap_str != "N/A" and "조 원" not in market_cap_str:
+                    market_cap_str = f"{c_symbol}{market_cap_str}"
 
-            # 4. 상단 지표(KPI) 렌더링
+            # 4. 상단 지표(KPI) 및 🏢 기업 상세 정보 렌더링
             st.subheader(f"{official_name} ({symbol})")
-            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.0, 1.2, 1.2, 1.2, 1.8])
             
-            with kpi1: 
-                st.metric(label=f"💰 현재가", value=price_str)
-            with kpi2: 
-                st.metric(label="📈 전일 대비", value=change_val_str, delta=f"{day_change_pct:+.2f}%")
-            
-            with kpi3:
+            # 기업 정보 박스 (디자인 해치지 않게 박스 처리)
+            st.markdown(f"""
+                <div class="company-profile">
+                    <strong>🏢 업종:</strong> {sector_kr} / {industry_kr} <br>
+                    <strong>📝 개요:</strong> {summary_kr}
+                </div>
+            """, unsafe_allow_html=True)
+
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
+            with kpi2: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
+            with kpi3: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
+            with kpi4: 
                 if currency != "KRW":
                     try:
-                        ex_rate_url = "https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X"
-                        ex_rate_res = requests.get(ex_rate_url, headers=headers).json()
-                        ex_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
+                        ex_rate = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X", headers=headers).json()['chart']['result'][0]['meta']['regularMarketPrice']
                         st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
                     except:
                         st.metric(label="🇰🇷 원화 환산가", value="계산 불가")
                 else:
                     st.empty() 
-            
-            with kpi4: 
-                st.metric(label="📊 당일 총 거래량", value=f"{int(today_volume):,} 주")
-            with kpi5: 
-                st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
+
+            st.write("") # 간격 띄우기
+            fin1, fin2, fin3, fin4 = st.columns(4)
+            with fin1: st.metric(label="🏢 시가총액 (규모)", value=market_cap_str)
+            with fin2: st.metric(label="📈 PER (수익성)", value=pe_ratio_str)
+            with fin3: st.metric(label="💸 배당수익률", value=div_yield_str)
+            with fin4: st.empty()
 
             # 5. 차트 데이터 수집
             st.markdown("---")
-            # 💡 매핑 딕셔너리에서도 6달, 3년 제거
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
             
@@ -203,11 +285,13 @@ if search_term:
                     v = volumes[i] if volumes[i] is not None else 0
                     clean_data.append((dt_objects[i], opens[i], highs[i], lows[i], closes[i], v))
 
+            # 지표 계산 선행 (RSI 추가)
             full_prices = [row[4] for row in clean_data]
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
+            rsi_full = calc_rsi(full_prices, 14) # RSI 14일선 전체 계산
 
-            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes, f_ma20, f_ma60 = [], [], [], [], [], [], [], []
+            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes, f_ma20, f_ma60, f_rsi = [], [], [], [], [], [], [], [], []
 
             if timeframe == "1일" and len(clean_data) > 0:
                 session_start_idx = 0
@@ -226,9 +310,9 @@ if search_term:
                     f_volumes.append(clean_data[i][5])
                     f_ma20.append(ma20_full[i])
                     f_ma60.append(ma60_full[i])
+                    f_rsi.append(rsi_full[i])
                     
             elif timeframe != "1일":
-                # 💡 컷오프 매핑에서도 6달, 3년 제거
                 cutoff_map = {"1주일": 7, "1달": 30, "1년": 365, "5년": 365*5, "10년": 365*10}
                 cutoff_days = cutoff_map.get(timeframe, 30)
                 cutoff_date = datetime.now(KST) - timedelta(days=cutoff_days)
@@ -243,39 +327,45 @@ if search_term:
                         f_volumes.append(clean_data[i][5])
                         f_ma20.append(ma20_full[i])
                         f_ma60.append(ma60_full[i])
+                        f_rsi.append(rsi_full[i])
 
-            # 7. 차트 그리기
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            # 7. 차트 그리기 (💡 RSI 추가를 위해 2열로 화면 분할)
+            fig = make_subplots(
+                rows=2, cols=1, shared_xaxes=True, 
+                vertical_spacing=0.03, row_heights=[0.75, 0.25], # 위가 주가(75%), 아래가 RSI(25%)
+                specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
+            )
+            
             is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
             up_color = '#ff4b4b' if is_kr else '#00cc96'
             down_color = '#00b4d8' if is_kr else '#ff4b4b'
 
+            # --- Row 1: 주가 캔들 및 이평선 ---
             if use_candle:
                 fig.add_trace(go.Candlestick(
                     x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
                     increasing_line_color=up_color, decreasing_line_color=down_color, name='캔들'
-                ), secondary_y=False)
+                ), row=1, col=1, secondary_y=False)
             else:
                 fig.add_trace(go.Scatter(
                     x=f_dates, y=f_closes, mode='lines', name='주가', 
                     line=dict(color='#00b4d8', width=3), connectgaps=True
-                ), secondary_y=False)
+                ), row=1, col=1, secondary_y=False)
 
             if timeframe in ["1일", "1주일"]:
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
             elif timeframe == "1달":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-            # 💡 이평선 표시 로직에서도 6달, 3년 의존성 제거
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
             elif timeframe == "1년":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
             elif timeframe == "5년":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
             elif timeframe == "10년":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
 
             vol_colors = []
             f_amounts_str = [] 
@@ -292,22 +382,36 @@ if search_term:
                 else:
                     f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
+            # 거래량 (우측 Y축 활용)
             fig.add_trace(go.Bar(
                 x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
                 customdata=f_amounts_str, 
                 hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
-            ), secondary_y=True)
+            ), row=1, col=1, secondary_y=True)
             
+            # --- Row 2: RSI 지표 (전문가용 보조 지표) ---
+            fig.add_trace(go.Scatter(
+                x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', 
+                line=dict(color='#9c27b0', width=1.5)
+            ), row=2, col=1)
+            
+            # 과열(70) / 침체(30) 기준선
+            fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
+            fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
+
+            # 레이아웃 정리
             fig.update_layout(
-                title=f"📈 {official_name} 차트", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), xaxis_rangeslider_visible=False
+                title=f"📈 {official_name} 차트 & 보조지표", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), xaxis_rangeslider_visible=False,
+                height=700 # 차트 전체 높이 살짝 키움 (RSI 공간 확보)
             )
-            fig.update_yaxes(title_text=f"주가 ({currency})", secondary_y=False)
             
+            # Y축 설정
+            fig.update_yaxes(title_text=f"주가 ({currency})", row=1, col=1, secondary_y=False)
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
-            fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
+            fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
+            fig.update_yaxes(title_text="RSI", range=[0, 100], tickvals=[30, 50, 70], row=2, col=1)
             
-            # 💡 주말 갭 제거에서도 '6달' 삭제
             if timeframe in ["1달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
