@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import urllib.parse
-import yfinance as yf  # 💡 [핵심 도입] 야후 보안 토큰(Crumb)을 자동으로 뚫어주는 공식 라이브러리
+import yfinance as yf  
 
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
@@ -152,11 +152,20 @@ if search_term:
             market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
             sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "기업 설명이 제공되지 않았습니다."
 
-            # 💡 [핵심 수정] yfinance를 활용해 야후의 Crumb 보안을 뚫고 데이터를 안전하게 추출
+            # 💡 [핵심 추가] yfinance에 '일반 크롬 브라우저' 위장 세션을 씌워서 서버 IP 차단 우회
             try:
-                yf_ticker = yf.Ticker(symbol)
+                session = requests.Session()
+                session.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                })
+                
+                yf_ticker = yf.Ticker(symbol, session=session)
                 info = yf_ticker.info
                 
+                # 만약 info 딕셔너리가 비어있으면 에러를 발생시켜서 디버그 메시지를 띄우게 함
+                if not info or 'symbol' not in info:
+                    raise ValueError("야후가 클라우드 IP를 일시적으로 튕겨냈습니다.")
+
                 mc_raw = info.get('marketCap')
                 if mc_raw:
                     if symbol.endswith(".KS") or symbol.endswith(".KQ"):
@@ -183,8 +192,11 @@ if search_term:
                 if industry != 'N/A': industry_kr = translate_to_korean(industry)
                 if summary_eng:
                     summary_kr = translate_to_korean(summary_eng[:350] + ("..." if len(summary_eng) > 350 else ""))
+            
             except Exception as e:
-                pass # yfinance 지연 시에도 뻗지 않도록 패스
+                # 💡 만약 또 튕기면, 사용자 화면에 무슨 이유로 튕겼는지 작게 표시 (원인 분석용)
+                st.warning(f"⚠️ 야후 보안 지연: 상세 데이터를 일시적으로 불러올 수 없습니다. (디버그: {e})")
+                pass
 
             # 주가 및 차트 데이터 수집 (여긴 기존 빠르고 안정적인 API 유지)
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
@@ -444,4 +456,4 @@ if search_term:
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
-    
+                            
