@@ -267,14 +267,25 @@ if search_term:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
             vol_colors = []
+            f_amounts_str = [] # 거래 대금을 저장할 리스트
+            
             for i in range(len(f_closes)):
                 if i > 0 and f_closes[i] < f_closes[i-1]:
                     vol_colors.append(down_color)
                 else:
                     vol_colors.append(up_color)
+                
+                # 거래 대금 계산 및 통화 포맷 적용
+                amount = f_closes[i] * f_volumes[i]
+                if currency == "KRW":
+                    f_amounts_str.append(f"{int(amount):,} 원")
+                else:
+                    f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
             fig.add_trace(go.Bar(
-                x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3
+                x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
+                customdata=f_amounts_str, # 계산된 거래 대금 데이터 연결
+                hovertemplate="%{y:,} 주<br>대금: %{customdata}<extra></extra>" # 툴팁에 거래 대금 추가
             ), secondary_y=True)
             
             fig.update_layout(
