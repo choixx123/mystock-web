@@ -77,7 +77,9 @@ with col3:
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
 
 search_term = st.session_state.search_input
-timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "6달", "1년", "3년", "5년", "10년"], horizontal=True, index=2)
+
+# 💡 6달, 3년 선택지 제거
+timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=2)
 
 # 깜빡임 방지용 대시보드 컨테이너
 dashboard_container = st.empty()
@@ -180,8 +182,9 @@ if search_term:
 
             # 5. 차트 데이터 수집
             st.markdown("---")
-            fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "6달": "1y", "1년": "2y", "3년": "10y", "5년": "10y", "10년": "max"}
-            interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "6달": "1d", "1년": "1d", "3년": "1wk", "5년": "1wk", "10년": "1mo"}
+            # 💡 매핑 딕셔너리에서도 6달, 3년 제거
+            fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
+            interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
             
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
             chart_res = requests.get(chart_url, headers=headers).json()['chart']['result'][0]
@@ -225,7 +228,8 @@ if search_term:
                     f_ma60.append(ma60_full[i])
                     
             elif timeframe != "1일":
-                cutoff_map = {"1주일": 7, "1달": 30, "6달": 180, "1년": 365, "3년": 365*3, "5년": 365*5, "10년": 365*10}
+                # 💡 컷오프 매핑에서도 6달, 3년 제거
+                cutoff_map = {"1주일": 7, "1달": 30, "1년": 365, "5년": 365*5, "10년": 365*10}
                 cutoff_days = cutoff_map.get(timeframe, 30)
                 cutoff_date = datetime.now(KST) - timedelta(days=cutoff_days)
                 
@@ -262,9 +266,16 @@ if search_term:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
             elif timeframe == "1달":
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
-            elif timeframe in ["6달", "1년"]:
+            # 💡 이평선 표시 로직에서도 6달, 3년 의존성 제거
+            elif timeframe == "1년":
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20일선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60일선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe == "5년":
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20주선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60주선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
+            elif timeframe == "10년":
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20개월선', line=dict(color='#ff9900', width=1.5, dash='dash')), secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60개월선', line=dict(color='#9933cc', width=1.5, dash='dash')), secondary_y=False)
 
             vol_colors = []
             f_amounts_str = [] 
@@ -275,14 +286,12 @@ if search_term:
                 else:
                     vol_colors.append(up_color)
                 
-                # 거래 대금 계산 및 통화 포맷 적용
                 amount = f_closes[i] * f_volumes[i]
                 if currency == "KRW":
                     f_amounts_str.append(f"{int(amount):,} 원")
                 else:
                     f_amounts_str.append(f"{c_symbol}{int(amount):,}")
                     
-            # 💡 [수정됨] 툴팁(hovertemplate)에 '거래량:' 이라는 명칭을 다시 살려 넣음
             fig.add_trace(go.Bar(
                 x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
                 customdata=f_amounts_str, 
@@ -298,7 +307,8 @@ if search_term:
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, secondary_y=True, range=[0, max_vol * 4 if max_vol > 0 else 100])
             
-            if timeframe in ["1달", "6달", "1년"]:
+            # 💡 주말 갭 제거에서도 '6달' 삭제
+            if timeframe in ["1달", "1년"]:
                 fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             st.plotly_chart(fig, use_container_width=True)
@@ -308,27 +318,23 @@ if search_term:
             st.markdown(f"### 📰 {original_name} 최신 뉴스")
             
             try:
-                # 검색어에 '주식'을 붙여서 마약 같은 헛소리 기사 차단
-                clean_search_term = original_name.split('(')[0].strip() # '토요타 (미국)' 같은 경우 '토요타'만 추출
+                clean_search_term = original_name.split('(')[0].strip()
                 search_query = f"{clean_search_term} 주식"
                 encoded_query = urllib.parse.quote(search_query)
                 
-                # 구글 뉴스 한국어 전용 RSS 피드
                 news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
                 news_res = requests.get(news_url, headers=headers)
                 
-                # XML 파싱
                 root = ET.fromstring(news_res.content)
                 items = root.findall('.//item')
                 
                 if items:
-                    for item in items[:5]: # 최신 5개
+                    for item in items[:5]:
                         title = item.find('title').text
                         link = item.find('link').text
                         source_elem = item.find('source')
                         source = source_elem.text if source_elem is not None else "구글 뉴스"
                         
-                        # 제목 끝에 언론사 이름이 ' - 언론사명' 형식으로 붙는 것 제거 (더 깔끔하게)
                         if " - " in title:
                             title = " - ".join(title.split(" - ")[:-1])
                             
