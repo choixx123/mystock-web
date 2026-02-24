@@ -148,48 +148,23 @@ if search_term:
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            market_cap_str, pe_ratio_str, div_yield_str = "N/A", "N/A", "배당 없음"
-            sector_kr, industry_kr, summary_kr = "정보 없음", "정보 없음", "요약 데이터를 불러올 수 없습니다."
-
-            # 💡 [핵심 교체] 막혀버린 yfinance 대신, 우회 확률이 높은 Yahoo의 가벼운 API 2개로 직접 찌름
-            # 1. 시가총액, PER, 배당 (v7 quote 통로)
-            try:
-                quote_url = f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-                q_res = fetch_json(quote_url, headers)
-                if q_res and q_res.get('quoteResponse') and q_res['quoteResponse'].get('result'):
-                    info = q_res['quoteResponse']['result'][0]
-                    
-                    mc_raw = info.get('marketCap')
-                    if mc_raw:
-                        if symbol.endswith(".KS") or symbol.endswith(".KQ"): market_cap_str = f"{mc_raw / 1000000000000:.2f}조 원"
-                        else:
-                            if mc_raw >= 1000000000000: market_cap_str = f"{mc_raw / 1000000000000:.2f}T (조)" 
-                            elif mc_raw >= 1000000000: market_cap_str = f"{mc_raw / 1000000000:.2f}B (십억)" 
-                            else: market_cap_str = f"{mc_raw / 1000000:.2f}M (백만)"
-                            
-                    pe_raw = info.get('trailingPE', info.get('forwardPE'))
-                    if pe_raw: pe_ratio_str = f"{pe_raw:.2f} 배"
-                    
-                    div_raw = info.get('trailingAnnualDividendYield', info.get('dividendYield'))
-                    if div_raw: div_yield_str = f"{div_raw * 100:.2f}%"
-            except Exception: pass
-
-            # 2. 기업 개요 및 업종 (v11 quoteSummary 통로)
+            # 기업 개요 (데이터가 없으면 아예 빈 박스를 숨겨서 깔끔하게 유지)
+            sector_kr, industry_kr, summary_kr = "", "", ""
             try:
                 profile_url = f"https://query2.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=summaryProfile"
                 p_res = fetch_json(profile_url, headers)
                 if p_res and p_res.get('quoteSummary') and p_res['quoteSummary'].get('result'):
                     profile = p_res['quoteSummary']['result'][0].get('summaryProfile', {})
-                    sector = profile.get('sector', 'N/A')
-                    industry = profile.get('industry', 'N/A')
+                    sector = profile.get('sector', '')
+                    industry = profile.get('industry', '')
                     summary_eng = profile.get('longBusinessSummary', '')
                     
-                    if sector != 'N/A': sector_kr = translate_to_korean(sector)
-                    if industry != 'N/A': industry_kr = translate_to_korean(industry)
+                    if sector: sector_kr = translate_to_korean(sector)
+                    if industry: industry_kr = translate_to_korean(industry)
                     if summary_eng: summary_kr = translate_to_korean(summary_eng[:350] + "...")
             except Exception: pass
 
-            # 주가 및 차트 데이터 수집 (안 막히고 잘 되는 통로)
+            # 주가 및 차트 데이터 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = fetch_json(url_1y, headers)
             
@@ -227,23 +202,25 @@ if search_term:
                 price_str = f"{c_symbol}{price:,.2f}"
                 change_val_str = f"{day_change:+,.2f} {c_symbol}" 
                 highlow_52_str = f"{c_symbol}{high_52:,.2f} / {c_symbol}{low_52:,.2f}" 
-                if market_cap_str != "N/A" and "원" not in market_cap_str:
-                    market_cap_str = f"{c_symbol}{market_cap_str}"
 
             st.subheader(f"{official_name} ({symbol})")
             
-            st.markdown(f"""
-                <div class="company-profile">
-                    <strong>🏢 업종:</strong> {sector_kr} / {industry_kr} <br>
-                    <strong>📝 개요:</strong> {summary_kr}
-                </div>
-            """, unsafe_allow_html=True)
+            # 클라우드에서 기업 정보가 안 불러와지면 UI가 지저분해지지 않게 숨김 처리
+            if summary_kr:
+                st.markdown(f"""
+                    <div class="company-profile">
+                        <strong>🏢 업종:</strong> {sector_kr} / {industry_kr} <br>
+                        <strong>📝 개요:</strong> {summary_kr}
+                    </div>
+                """, unsafe_allow_html=True)
 
-            kpi1, kpi2, kpi3, kpi4 = st.columns([1.0, 1.6, 1.1, 1.3])
-            with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
-            with kpi2: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
-            with kpi3: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
-            with kpi4: 
+            # 💡 [원상 복구] 네가 원했던 오리지널 순서: 1.현재가 | 2.원화 환산가 | 3.52주 최고/최저 | 4.거래량
+            kpi1, kpi2, kpi3, kpi4 = st.columns([1.2, 1.2, 1.6, 1.2]) # 52주 칸만 넓게 유지해서 글자 안 잘리게 함
+            
+            with kpi1: 
+                st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
+            
+            with kpi2: 
                 if currency != "KRW":
                     try:
                         ex_rate_res = fetch_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X", headers)
@@ -254,12 +231,13 @@ if search_term:
                     except: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                 else: st.empty() 
 
-            st.write("") 
-            fin1, fin2, fin3, fin4 = st.columns([1.2, 1.0, 1.0, 1.8])
-            with fin1: st.metric(label="🏢 시가총액 (규모)", value=market_cap_str)
-            with fin2: st.metric(label="📈 PER (수익성)", value=pe_ratio_str)
-            with fin3: st.metric(label="💸 배당수익률", value=div_yield_str)
-            with fin4: st.empty()
+            with kpi3: 
+                st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
+
+            with kpi4: 
+                st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
+
+            st.write("") # 아래 불필요한 재무 지표(시가총액, PER 등) 모두 삭제 완료
 
             st.markdown("---")
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
@@ -447,4 +425,4 @@ if search_term:
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
-                            
+    
