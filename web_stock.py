@@ -12,6 +12,15 @@ import urllib.parse
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
 
+st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
+
+st.markdown("""
+    <style>
+    .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
+    .news-title { font-size: 16px; font-weight: bold; color: #1E88E5 !important; text-decoration: none; }
+    </style>
+""", unsafe_allow_html=True)
+
 vip_dict = {
     "현대자동차": "005380.KS", "네이버": "035420.KS", "카카오": "035720.KS",
     "삼성전자": "005930.KS", "엔비디아": "NVDA", "테슬라": "TSLA",
@@ -24,24 +33,67 @@ vip_dict = {
     "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
-def fetch_json(url, headers, timeout=5):
+# 🚀 [속도 최적화 핵심 1] JSON 데이터 15초간 캐싱 (버튼 누를 때 딜레이 제거)
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_json(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
     try:
-        res = requests.get(url, headers=headers, timeout=timeout)
+        res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
-            try: return res.json()
-            except ValueError: return None
-        return None
+            return res.json()
     except Exception: return None
+    return None
 
+# 🚀 [속도 최적화 핵심 2] 번역은 한 번만 하면 되니 길게 캐싱
+@st.cache_data(ttl=86400, show_spinner=False)
 def translate_to_english(text):
     if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): return text, True 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
         res = requests.get(url, timeout=3)
         if res.status_code == 200: return res.json()[0][0][0], True
-        return text, False
-    except: return text, False 
+    except: pass
+    return text, False 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def get_quick_quote(symbol):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+    res = get_cached_json(url)
+    if res and res.get('chart') and res['chart'].get('result'):
+        meta = res['chart']['result'][0]['meta']
+        price = meta.get('regularMarketPrice', 0)
+        prev = meta.get('previousClose', price)
+        return price, ((price - prev) / prev * 100) if prev else 0
+    return 0, 0
+
+# 🚀 [속도 최적화 핵심 3] 뉴스는 5분(300초)마다 새로고침
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_news(original_name):
+    clean_search_term = original_name.split('(')[0].strip()
+    search_query = f"{clean_search_term} 주식"
+    encoded_query = urllib.parse.quote(search_query)
+    news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    news_list = []
+    try:
+        res = requests.get(news_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            root = ET.fromstring(res.content)
+            for item in root.findall('.//item')[:5]:
+                title = item.find('title').text
+                link = item.find('link').text
+                source_elem = item.find('source')
+                source = source_elem.text if source_elem is not None else "구글 뉴스"
+                if " - " in title: title = " - ".join(title.split(" - ")[:-1])
+                news_list.append({"title": title, "link": link, "source": source})
+    except Exception: pass
+    return news_list, clean_search_term
+
+# --- 보조지표 계산 함수 (수학 연산이라 캐싱 없어도 순식간에 처리됨) ---
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
@@ -106,51 +158,27 @@ def calc_rsi(prices, period=14):
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
 
-def get_quick_quote(symbol, headers):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
-    res = fetch_json(url, headers, timeout=2)
-    if res and res.get('chart') and res['chart'].get('result'):
-        meta = res['chart']['result'][0]['meta']
-        price = meta.get('regularMarketPrice', 0)
-        prev = meta.get('previousClose', price)
-        return price, ((price - prev) / prev * 100) if prev else 0
-    return 0, 0
-
-st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
-
-st.markdown("""
-    <style>
-    .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
-    .news-title { font-size: 16px; font-weight: bold; color: #1E88E5 !important; text-decoration: none; }
-    </style>
-""", unsafe_allow_html=True)
-
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'application/json'
-}
-
-# ⭐️ [추가 1] 사이드바: 내 관심 종목 (Watchlist)
+# ⭐️ [사이드바]
 with st.sidebar:
     st.header("⭐️ 관심 종목")
     watchlist = {"테슬라": "TSLA", "엔비디아": "NVDA", "애플": "AAPL", "삼성전자": "005930.KS"}
     for name, sym in watchlist.items():
-        p, pct = get_quick_quote(sym, headers)
+        p, pct = get_quick_quote(sym)
         if p > 0:
             c_sym = "₩" if "KS" in sym else "$"
             st.metric(label=name, value=f"{c_sym}{p:,.2f}" if "KS" not in sym else f"{c_sym}{int(p):,}", delta=f"{pct:+.2f}%")
     st.markdown("---")
-    st.caption("CEO 글로벌 터미널 V11.0")
+    st.caption("CEO 글로벌 터미널 V11.1 (최적화 완료)")
 
 st.title("🌍 글로벌 주식 터미널")
 
-# 🌐 [추가 2] 글로벌 전광판 (최상단 띠 배너)
+# 🌐 [글로벌 전광판]
 st.markdown("---")
 m1, m2, m3, m4, m5 = st.columns(5)
 indices = [("나스닥", "^IXIC", ""), ("S&P 500", "^GSPC", ""), ("코스피", "^KS11", ""), ("비트코인", "BTC-USD", "$"), ("원/달러", "USDKRW=X", "₩")]
 cols = [m1, m2, m3, m4, m5]
 for col, (name, sym, sign) in zip(cols, indices):
-    p, pct = get_quick_quote(sym, headers)
+    p, pct = get_quick_quote(sym)
     with col:
         if p > 0: st.metric(label=name, value=f"{sign}{p:,.2f}" if name != "코스피" else f"{p:,.2f}", delta=f"{pct:+.2f}%")
         else: st.metric(label=name, value="로딩중", delta="-")
@@ -172,7 +200,6 @@ with col3:
     st.write("") 
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
-    # 📈 [추가 3] 차트 고급 지표 스위치
     use_bb = st.toggle("📈 볼린저 밴드", value=False)
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
@@ -197,7 +224,7 @@ if search_term:
                     st.stop()
                     
                 search_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={english_name}"
-                search_res = fetch_json(search_url, headers)
+                search_res = get_cached_json(search_url)
                 
                 if not search_res or not search_res.get('quotes') or len(search_res['quotes']) == 0:
                     st.error(f"❌ '{original_name}' 정보가 없거나 야후 서버가 응답하지 않습니다.")
@@ -208,7 +235,7 @@ if search_term:
                 official_name = best_match.get('shortname', english_name)
 
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
-            res_1y_data = fetch_json(url_1y, headers)
+            res_1y_data = get_cached_json(url_1y)
             
             if not res_1y_data or 'chart' not in res_1y_data or not res_1y_data['chart']['result']:
                 st.error("❌ 주가 데이터를 불러올 수 없습니다. 야후 서버 점검 중일 수 있습니다.")
@@ -247,18 +274,15 @@ if search_term:
 
             st.subheader(f"{official_name} ({symbol})")
             
-            # [오리지널 UI 유지]
             kpi1, kpi2, kpi3, kpi4 = st.columns([1.2, 1.2, 1.6, 1.2]) 
             with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
             with kpi2: 
                 if currency != "KRW":
-                    try:
-                        ex_rate_res = fetch_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X", headers)
-                        if ex_rate_res:
-                            ex_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
-                            st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
-                        else: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
-                    except: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
+                    ex_rate_res = get_cached_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X")
+                    if ex_rate_res:
+                        ex_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
+                        st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate):,} 원")
+                    else: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                 else: st.empty() 
             with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
             with kpi4: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
@@ -269,7 +293,7 @@ if search_term:
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
             
             chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
-            chart_res_json = fetch_json(chart_url, headers)
+            chart_res_json = get_cached_json(chart_url)
             
             if not chart_res_json:
                 st.error("❌ 선택한 기간의 차트 데이터를 불러올 수 없습니다.")
@@ -299,7 +323,6 @@ if search_term:
             rsi_full = calc_rsi(full_prices, 14) 
             macd_full, macd_signal_full = calc_macd(full_prices)
             
-            # 볼린저 밴드 계산 (20일선 기준)
             std_full = calc_std(full_prices, 20, ma20_full)
             bb_upper_full = [m + 2*s if m is not None and s is not None else None for m, s in zip(ma20_full, std_full)]
             bb_lower_full = [m - 2*s if m is not None and s is not None else None for m, s in zip(ma20_full, std_full)]
@@ -370,7 +393,6 @@ if search_term:
                     line=dict(color='#00b4d8', width=3), connectgaps=True
                 ), row=1, col=1, secondary_y=False)
 
-            # 볼린저 밴드 그리기 (토글 On 일 때)
             if use_bb and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_bb_up, mode='lines', name='볼린저 상단', line=dict(color='rgba(173, 216, 230, 0.5)', width=1)), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_bb_dn, mode='lines', name='볼린저 하단', fill='tonexty', fillcolor='rgba(173, 216, 230, 0.1)', line=dict(color='rgba(173, 216, 230, 0.5)', width=1)), row=1, col=1, secondary_y=False)
@@ -403,7 +425,6 @@ if search_term:
                     hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
                 ), row=1, col=1, secondary_y=True)
                 
-                # 하단 지표 그리기 (RSI vs MACD)
                 if bottom_indicator == "RSI":
                     fig.add_trace(go.Scatter(x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
                     fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
@@ -434,33 +455,17 @@ if search_term:
             st.markdown("---")
             st.markdown(f"### 📰 {original_name} 최신 뉴스")
             
-            try:
-                clean_search_term = original_name.split('(')[0].strip()
-                search_query = f"{clean_search_term} 주식"
-                encoded_query = urllib.parse.quote(search_query)
-                news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
-                news_res = requests.get(news_url, headers=headers)
-                
-                if news_res.status_code == 200:
-                    root = ET.fromstring(news_res.content)
-                    items = root.findall('.//item')
-                    if items:
-                        for item in items[:5]:
-                            title = item.find('title').text
-                            link = item.find('link').text
-                            source_elem = item.find('source')
-                            source = source_elem.text if source_elem is not None else "구글 뉴스"
-                            if " - " in title: title = " - ".join(title.split(" - ")[:-1])
-                            st.markdown(f"""
-                                <div class="news-card">
-                                    <a class="news-title" href="{link}" target="_blank">📰 {title}</a>
-                                    <div style="font-size: 13px; color: #666; margin-top: 5px;">🏢 출처: {source}</div>
-                                </div>
-                            """, unsafe_allow_html=True)
-                    else: st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
-                else: st.warning("⚠️ 뉴스 서버 응답이 지연되고 있습니다.")
-            except Exception:
-                st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
+            news_list, clean_search_term = get_cached_news(original_name)
+            if news_list:
+                for news in news_list:
+                    st.markdown(f"""
+                        <div class="news-card">
+                            <a class="news-title" href="{news['link']}" target="_blank">📰 {news['title']}</a>
+                            <div style="font-size: 13px; color: #666; margin-top: 5px;">🏢 출처: {news['source']}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없거나 불러올 수 없습니다.")
 
     except Exception as e:
         dashboard_container.error(f"❌ 데이터 연산 오류: {e}")
@@ -468,4 +473,3 @@ if search_term:
 if live_mode and search_term:
     time.sleep(5)
     st.rerun()
-    
