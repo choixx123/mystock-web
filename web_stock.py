@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import re
 import time
+import math
 from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -41,21 +42,44 @@ def translate_to_english(text):
         return text, False
     except: return text, False 
 
-def translate_to_korean(text):
-    if not text or text == "N/A": return text
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q={text}"
-        res = requests.get(url, timeout=3)
-        if res.status_code == 200: return res.json()[0][0][0]
-        return text
-    except: return text
-
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
         if i < window - 1: ma.append(None)
         else: ma.append(sum(prices[i-window+1:i+1]) / window)
     return ma
+
+def calc_std(prices, window, ma):
+    std = []
+    for i in range(len(prices)):
+        if i < window - 1 or ma[i] is None: std.append(None)
+        else:
+            variance = sum((p - ma[i]) ** 2 for p in prices[i-window+1:i+1]) / window
+            std.append(math.sqrt(variance))
+    return std
+
+def calc_ema(prices, days):
+    ema = [None] * len(prices)
+    if not prices or len(prices) < days: return ema
+    k = 2 / (days + 1)
+    ema[days-1] = sum(prices[:days]) / days
+    for i in range(days, len(prices)):
+        ema[i] = prices[i] * k + ema[i-1] * (1 - k)
+    return ema
+
+def calc_macd(prices):
+    ema12 = calc_ema(prices, 12)
+    ema26 = calc_ema(prices, 26)
+    macd = [None if e12 is None or e26 is None else e12 - e26 for e12, e26 in zip(ema12, ema26)]
+    valid_macd_idx = [i for i, m in enumerate(macd) if m is not None]
+    signal = [None] * len(prices)
+    if valid_macd_idx and len(valid_macd_idx) >= 9:
+        first_idx = valid_macd_idx[0]
+        signal[first_idx+8] = sum(macd[first_idx:first_idx+9]) / 9
+        k = 2 / (9 + 1)
+        for i in range(first_idx+9, len(prices)):
+            signal[i] = macd[i] * k + signal[i-1] * (1 - k)
+    return macd, signal
 
 def calc_rsi(prices, period=14):
     rsi = [None] * len(prices)
@@ -76,12 +100,21 @@ def calc_rsi(prices, period=14):
             loss = -change if change < 0 else 0
             avg_gain = (avg_gain * (period - 1) + gain) / period
             avg_loss = (avg_loss * (period - 1) + loss) / period
-
         if avg_loss == 0: rsi[i] = 100
         else:
             rs = avg_gain / avg_loss
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
+
+def get_quick_quote(symbol, headers):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+    res = fetch_json(url, headers, timeout=2)
+    if res and res.get('chart') and res['chart'].get('result'):
+        meta = res['chart']['result'][0]['meta']
+        price = meta.get('regularMarketPrice', 0)
+        prev = meta.get('previousClose', price)
+        return price, ((price - prev) / prev * 100) if prev else 0
+    return 0, 0
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
@@ -89,11 +122,39 @@ st.markdown("""
     <style>
     .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
     .news-title { font-size: 16px; font-weight: bold; color: #1E88E5 !important; text-decoration: none; }
-    .company-profile { background: #ffffff; border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 20px; font-size: 14px; color: #444; }
     </style>
 """, unsafe_allow_html=True)
 
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json'
+}
+
+# ⭐️ [추가 1] 사이드바: 내 관심 종목 (Watchlist)
+with st.sidebar:
+    st.header("⭐️ 관심 종목")
+    watchlist = {"테슬라": "TSLA", "엔비디아": "NVDA", "애플": "AAPL", "삼성전자": "005930.KS"}
+    for name, sym in watchlist.items():
+        p, pct = get_quick_quote(sym, headers)
+        if p > 0:
+            c_sym = "₩" if "KS" in sym else "$"
+            st.metric(label=name, value=f"{c_sym}{p:,.2f}" if "KS" not in sym else f"{c_sym}{int(p):,}", delta=f"{pct:+.2f}%")
+    st.markdown("---")
+    st.caption("CEO 글로벌 터미널 V11.0")
+
 st.title("🌍 글로벌 주식 터미널")
+
+# 🌐 [추가 2] 글로벌 전광판 (최상단 띠 배너)
+st.markdown("---")
+m1, m2, m3, m4, m5 = st.columns(5)
+indices = [("나스닥", "^IXIC", ""), ("S&P 500", "^GSPC", ""), ("코스피", "^KS11", ""), ("비트코인", "BTC-USD", "$"), ("원/달러", "USDKRW=X", "₩")]
+cols = [m1, m2, m3, m4, m5]
+for col, (name, sym, sign) in zip(cols, indices):
+    p, pct = get_quick_quote(sym, headers)
+    with col:
+        if p > 0: st.metric(label=name, value=f"{sign}{p:,.2f}" if name != "코스피" else f"{p:,.2f}", delta=f"{pct:+.2f}%")
+        else: st.metric(label=name, value="로딩중", delta="-")
+st.markdown("---")
 
 if "search_input" not in st.session_state: st.session_state.search_input = "테슬라"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
@@ -111,6 +172,9 @@ with col3:
     st.write("") 
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
+    # 📈 [추가 3] 차트 고급 지표 스위치
+    use_bb = st.toggle("📈 볼린저 밴드", value=False)
+    bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
 search_term = st.session_state.search_input
 timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=2)
@@ -118,11 +182,6 @@ timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1�
 dashboard_container = st.empty()
 
 if search_term:
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-    }
-    
     try:
         with dashboard_container.container():
             original_name = search_term.strip()
@@ -148,23 +207,6 @@ if search_term:
                 symbol = best_match['symbol']
                 official_name = best_match.get('shortname', english_name)
 
-            # 기업 개요 (데이터가 없으면 아예 빈 박스를 숨겨서 깔끔하게 유지)
-            sector_kr, industry_kr, summary_kr = "", "", ""
-            try:
-                profile_url = f"https://query2.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=summaryProfile"
-                p_res = fetch_json(profile_url, headers)
-                if p_res and p_res.get('quoteSummary') and p_res['quoteSummary'].get('result'):
-                    profile = p_res['quoteSummary']['result'][0].get('summaryProfile', {})
-                    sector = profile.get('sector', '')
-                    industry = profile.get('industry', '')
-                    summary_eng = profile.get('longBusinessSummary', '')
-                    
-                    if sector: sector_kr = translate_to_korean(sector)
-                    if industry: industry_kr = translate_to_korean(industry)
-                    if summary_eng: summary_kr = translate_to_korean(summary_eng[:350] + "...")
-            except Exception: pass
-
-            # 주가 및 차트 데이터 수집
             url_1y = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
             res_1y_data = fetch_json(url_1y, headers)
             
@@ -205,21 +247,9 @@ if search_term:
 
             st.subheader(f"{official_name} ({symbol})")
             
-            # 클라우드에서 기업 정보가 안 불러와지면 UI가 지저분해지지 않게 숨김 처리
-            if summary_kr:
-                st.markdown(f"""
-                    <div class="company-profile">
-                        <strong>🏢 업종:</strong> {sector_kr} / {industry_kr} <br>
-                        <strong>📝 개요:</strong> {summary_kr}
-                    </div>
-                """, unsafe_allow_html=True)
-
-            # 💡 [원상 복구] 네가 원했던 오리지널 순서: 1.현재가 | 2.원화 환산가 | 3.52주 최고/최저 | 4.거래량
-            kpi1, kpi2, kpi3, kpi4 = st.columns([1.2, 1.2, 1.6, 1.2]) # 52주 칸만 넓게 유지해서 글자 안 잘리게 함
-            
-            with kpi1: 
-                st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
-            
+            # [오리지널 UI 유지]
+            kpi1, kpi2, kpi3, kpi4 = st.columns([1.2, 1.2, 1.6, 1.2]) 
+            with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
             with kpi2: 
                 if currency != "KRW":
                     try:
@@ -230,15 +260,10 @@ if search_term:
                         else: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                     except: st.metric(label="🇰🇷 원화 환산가", value="조회 불가")
                 else: st.empty() 
+            with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
+            with kpi4: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
 
-            with kpi3: 
-                st.metric(label="⚖️ 52주 최고/최저", value=highlow_52_str if high_52 else "데이터 없음")
-
-            with kpi4: 
-                st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
-
-            st.write("") # 아래 불필요한 재무 지표(시가총액, PER 등) 모두 삭제 완료
-
+            st.write("") 
             st.markdown("---")
             fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
             interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1mo"}
@@ -272,8 +297,15 @@ if search_term:
             ma20_full = calc_ma(full_prices, 20)
             ma60_full = calc_ma(full_prices, 60)
             rsi_full = calc_rsi(full_prices, 14) 
+            macd_full, macd_signal_full = calc_macd(full_prices)
+            
+            # 볼린저 밴드 계산 (20일선 기준)
+            std_full = calc_std(full_prices, 20, ma20_full)
+            bb_upper_full = [m + 2*s if m is not None and s is not None else None for m, s in zip(ma20_full, std_full)]
+            bb_lower_full = [m - 2*s if m is not None and s is not None else None for m, s in zip(ma20_full, std_full)]
 
-            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes, f_ma20, f_ma60, f_rsi = [], [], [], [], [], [], [], [], []
+            f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes = [], [], [], [], [], []
+            f_ma20, f_ma60, f_rsi, f_macd, f_signal, f_bb_up, f_bb_dn = [], [], [], [], [], [], []
 
             if timeframe == "1일" and len(clean_data) > 0:
                 session_start_idx = 0
@@ -282,7 +314,6 @@ if search_term:
                     if time_diff.total_seconds() > 4 * 3600: 
                         session_start_idx = i
                         break
-                
                 for i in range(session_start_idx, len(clean_data)):
                     f_dates.append(clean_data[i][0])
                     f_opens.append(clean_data[i][1])
@@ -293,12 +324,15 @@ if search_term:
                     f_ma20.append(ma20_full[i])
                     f_ma60.append(ma60_full[i])
                     f_rsi.append(rsi_full[i])
+                    f_macd.append(macd_full[i])
+                    f_signal.append(macd_signal_full[i])
+                    f_bb_up.append(bb_upper_full[i])
+                    f_bb_dn.append(bb_lower_full[i])
                     
             elif timeframe != "1일":
                 cutoff_map = {"1주일": 7, "1달": 30, "1년": 365, "5년": 365*5, "10년": 365*10}
                 cutoff_days = cutoff_map.get(timeframe, 30)
                 cutoff_date = datetime.now(KST) - timedelta(days=cutoff_days)
-                
                 for i in range(len(clean_data)):
                     if clean_data[i][0] >= cutoff_date:
                         f_dates.append(clean_data[i][0])
@@ -310,6 +344,10 @@ if search_term:
                         f_ma20.append(ma20_full[i])
                         f_ma60.append(ma60_full[i])
                         f_rsi.append(rsi_full[i])
+                        f_macd.append(macd_full[i])
+                        f_signal.append(macd_signal_full[i])
+                        f_bb_up.append(bb_upper_full[i])
+                        f_bb_dn.append(bb_lower_full[i])
 
             fig = make_subplots(
                 rows=2, cols=1, shared_xaxes=True, 
@@ -332,6 +370,11 @@ if search_term:
                     line=dict(color='#00b4d8', width=3), connectgaps=True
                 ), row=1, col=1, secondary_y=False)
 
+            # 볼린저 밴드 그리기 (토글 On 일 때)
+            if use_bb and len(f_dates) > 0:
+                fig.add_trace(go.Scatter(x=f_dates, y=f_bb_up, mode='lines', name='볼린저 상단', line=dict(color='rgba(173, 216, 230, 0.5)', width=1)), row=1, col=1, secondary_y=False)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_bb_dn, mode='lines', name='볼린저 하단', fill='tonexty', fillcolor='rgba(173, 216, 230, 0.1)', line=dict(color='rgba(173, 216, 230, 0.5)', width=1)), row=1, col=1, secondary_y=False)
+
             if timeframe in ["1일", "1주일"] and len(f_dates) > 0:
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1, secondary_y=False)
@@ -349,7 +392,6 @@ if search_term:
             for i in range(len(f_closes)):
                 if i > 0 and f_closes[i] < f_closes[i-1]: vol_colors.append(down_color)
                 else: vol_colors.append(up_color)
-                
                 amount = f_closes[i] * f_volumes[i]
                 if currency == "KRW": f_amounts_str.append(f"{int(amount):,} 원")
                 else: f_amounts_str.append(f"{c_symbol}{int(amount):,}")
@@ -361,13 +403,19 @@ if search_term:
                     hovertemplate="거래량: %{y:,} 주<br>거래 대금: %{customdata}<extra></extra>" 
                 ), row=1, col=1, secondary_y=True)
                 
-                fig.add_trace(go.Scatter(
-                    x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', 
-                    line=dict(color='#9c27b0', width=1.5)
-                ), row=2, col=1)
-                
-                fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
-                fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
+                # 하단 지표 그리기 (RSI vs MACD)
+                if bottom_indicator == "RSI":
+                    fig.add_trace(go.Scatter(x=f_dates, y=f_rsi, mode='lines', name='RSI(14)', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
+                    fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1, annotation_text="과열 (70)", annotation_position="top right")
+                    fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1, annotation_text="침체 (30)", annotation_position="bottom right")
+                    fig.update_yaxes(title_text="RSI", range=[0, 100], tickvals=[30, 50, 70], row=2, col=1)
+                else:
+                    fig.add_trace(go.Scatter(x=f_dates, y=f_macd, mode='lines', name='MACD', line=dict(color='#00b4d8', width=1.5)), row=2, col=1)
+                    fig.add_trace(go.Scatter(x=f_dates, y=f_signal, mode='lines', name='Signal', line=dict(color='#ff9900', width=1.5)), row=2, col=1)
+                    macd_hist = [m - s if m is not None and s is not None else 0 for m, s in zip(f_macd, f_signal)]
+                    hist_colors = ['#ff4b4b' if h > 0 else '#00b4d8' for h in macd_hist]
+                    fig.add_trace(go.Bar(x=f_dates, y=macd_hist, name='Histogram', marker_color=hist_colors, opacity=0.5), row=2, col=1)
+                    fig.update_yaxes(title_text="MACD", row=2, col=1)
 
             fig.update_layout(
                 title=f"📈 {official_name} 차트 & 보조지표", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
@@ -378,7 +426,6 @@ if search_term:
             fig.update_yaxes(title_text=f"주가 ({currency})", row=1, col=1, secondary_y=False)
             max_vol = max(f_volumes) if f_volumes and len(f_volumes) > 0 else 0
             fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
-            fig.update_yaxes(title_text="RSI", range=[0, 100], tickvals=[30, 50, 70], row=2, col=1)
             
             if timeframe in ["1달", "1년"]: fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
@@ -391,23 +438,19 @@ if search_term:
                 clean_search_term = original_name.split('(')[0].strip()
                 search_query = f"{clean_search_term} 주식"
                 encoded_query = urllib.parse.quote(search_query)
-                
                 news_url = f"https://news.google.com/rss/search?q={encoded_query}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
                 news_res = requests.get(news_url, headers=headers)
                 
                 if news_res.status_code == 200:
                     root = ET.fromstring(news_res.content)
                     items = root.findall('.//item')
-                    
                     if items:
                         for item in items[:5]:
                             title = item.find('title').text
                             link = item.find('link').text
                             source_elem = item.find('source')
                             source = source_elem.text if source_elem is not None else "구글 뉴스"
-                            
                             if " - " in title: title = " - ".join(title.split(" - ")[:-1])
-                                
                             st.markdown(f"""
                                 <div class="news-card">
                                     <a class="news-title" href="{link}" target="_blank">📰 {title}</a>
@@ -416,7 +459,7 @@ if search_term:
                             """, unsafe_allow_html=True)
                     else: st.info(f"💡 현재 '{clean_search_term}'와 관련된 주식 뉴스가 없습니다.")
                 else: st.warning("⚠️ 뉴스 서버 응답이 지연되고 있습니다.")
-            except Exception as e:
+            except Exception:
                 st.warning("⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.")
 
     except Exception as e:
