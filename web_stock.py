@@ -58,14 +58,23 @@ def translate_to_english(text):
         pass
     return text, False 
 
+# 🔥 [수술 완료] 주말/휴일에 0% 뜨는 버그 픽스
 @st.cache_data(ttl=5, show_spinner=False)
 def get_quick_quote(symbol):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+    # 2d를 5d로 늘려서 주말이 껴도 무조건 전일 종가를 확보하게 수정!
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
     res = get_cached_json(url)
     if res and res.get('chart') and res['chart'].get('result'):
-        meta = res['chart']['result'][0]['meta']
-        price = meta.get('regularMarketPrice', 0)
-        prev = meta.get('previousClose', price)
+        result = res['chart']['result'][0]
+        meta = result['meta']
+        quotes = result['indicators']['quote'][0]
+        
+        valid_closes = [p for p in quotes.get('close', []) if p is not None]
+        
+        price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
+        # 메타데이터 대신 확실하게 계산된 리스트 끝에서 두번째(전일) 값을 가져옴
+        prev = valid_closes[-2] if len(valid_closes) >= 2 else meta.get('previousClose', price)
+        
         return price, ((price - prev) / prev * 100) if prev else 0
     return 0, 0
 
@@ -441,4 +450,5 @@ if news_list:
         """, unsafe_allow_html=True)
 else:
     st.info("💡 뉴스를 불러올 수 없습니다.")
+    
     
