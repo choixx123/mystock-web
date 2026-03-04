@@ -166,7 +166,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.1 (단위 변환/월봉 패치)")
+    st.caption("CEO 터미널 V13.2 (통통한 캔들 + 툴팁 거래대금 적용)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -241,7 +241,6 @@ def render_live_metrics(target_symbol, target_name):
             st.markdown(f'<div class="delisted-alert">🚨 상장폐지 / 거래정지 됨 ({target_symbol}) <br><span style="font-size: 16px; font-weight: normal;">마지막 거래일: {last_trade_date.strftime("%Y-%m-%d")}</span></div>', unsafe_allow_html=True)
 
     market_state = meta.get('marketState', 'REGULAR')
-    
     if is_dead: closed_html = '<span class="badge" style="background-color: #000000;">💀 영구 휴장(상폐)</span>'
     elif market_state == 'REGULAR': closed_html = '' 
     elif market_state == 'PRE': closed_html = '<span class="badge" style="background-color: #ff9900;">🌅 프리마켓</span>'
@@ -257,7 +256,6 @@ def render_live_metrics(target_symbol, target_name):
     prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
     today_volume = meta.get('regularMarketVolume', 0)
     
-    # 🔥 화폐 기호 완벽 패치
     currency = meta.get('currency', 'USD') 
     c_sym = "₩" if currency == "KRW" else "$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
     
@@ -270,7 +268,6 @@ def render_live_metrics(target_symbol, target_name):
 
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
     
-    # 🔥 거래대금 & KPI 5칸 확실하게 배치
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.1, 1.1, 1.4, 1.1, 1.2]) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     with kpi2: 
@@ -279,11 +276,8 @@ def render_live_metrics(target_symbol, target_name):
             if ex_rate_res: st.metric(label="🇰🇷 원화 환산가", value=f"약 ₩{int(price * ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']):,}")
         else: st.empty() 
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    
-    # 📊 거래량 포맷팅 (K, M, B)
     with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=format_abbrev(today_volume, ""))
     
-    # 💸 거래대금 포맷팅 (K, M, B) + 국가별 화폐 기호
     trading_val = price * today_volume
     tval_str = format_abbrev(trading_val, c_sym)
     with kpi5: st.metric(label="💸 거래대금", value=tval_str)
@@ -297,7 +291,6 @@ if is_valid_stock:
     st.write("") 
     st.markdown("---")
 
-    # 🔥 5년/10년 조회 시 캔들 두께 확보를 위해 1mo(월봉)으로 변경
     fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
     interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1mo", "10년": "1mo"}
 
@@ -307,6 +300,10 @@ if is_valid_stock:
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
         
+        # 🌟 차트에서도 화폐 기호 가져오기 (툴팁용)
+        chart_currency = chart_res['meta'].get('currency', 'USD')
+        c_sym = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
+
         has_split = False
         if 'events' in chart_res and 'splits' in chart_res['events']:
             has_split = True
@@ -375,6 +372,12 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
+        # 🌟 핵심 패치 1: 빈 공백 없애고 캔들 통통하게 만들기 위해 날짜를 문자열(카테고리)로 변환
+        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') for d in f_dates]
+
+        # 🌟 핵심 패치 2: 툴팁에 넣을 거래대금 문자열 (K, M, B, T 적용) 미리 계산
+        formatted_tvals = [format_abbrev(c * v, c_sym) for c, v in zip(f_closes, f_volumes)]
+
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True, 
             vertical_spacing=0.03, row_heights=[0.75, 0.25], 
@@ -385,36 +388,41 @@ if is_valid_stock:
         up_color = '#ff4b4b' if is_kr else '#00cc96'
         down_color = '#00b4d8' if is_kr else '#ff4b4b'
 
-        if use_candle and len(f_dates) > 0:
+        if use_candle and len(f_dates_str) > 0:
             fig.add_trace(go.Candlestick(
-                x=f_dates, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
+                x=f_dates_str, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
                 increasing_line_color=up_color, decreasing_line_color=down_color, name='캔들'
             ), row=1, col=1, secondary_y=False)
-        elif len(f_dates) > 0:
+        elif len(f_dates_str) > 0:
             fig.add_trace(go.Scatter(
-                x=f_dates, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)
+                x=f_dates_str, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)
             ), row=1, col=1, secondary_y=False)
 
-        if timeframe in ["1일", "1주일", "1달", "1년"] and len(f_dates) > 0:
-            fig.add_trace(go.Scatter(x=f_dates, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
-            fig.add_trace(go.Scatter(x=f_dates, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
+        if timeframe in ["1일", "1주일", "1달", "1년"] and len(f_dates_str) > 0:
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
 
         vol_colors = []
         for i in range(len(f_closes)):
             if i > 0 and f_closes[i] < f_closes[i-1]: vol_colors.append(down_color)
             else: vol_colors.append(up_color)
 
-        if len(f_dates) > 0:
-            fig.add_trace(go.Bar(x=f_dates, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3), row=1, col=1, secondary_y=True)
+        if len(f_dates_str) > 0:
+            # 🌟 핵심 패치 3: 볼륨 바 툴팁에 거래대금(customdata) 추가!
+            fig.add_trace(go.Bar(
+                x=f_dates_str, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
+                customdata=formatted_tvals,
+                hovertemplate="%{y:,.0f}<br><b>거래대금:</b> %{customdata}<extra></extra>"
+            ), row=1, col=1, secondary_y=True)
             
             if bottom_indicator == "RSI":
-                fig.add_trace(go.Scatter(x=f_dates, y=f_rsi, mode='lines', name='RSI', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=f_dates_str, y=f_rsi, mode='lines', name='RSI', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
                 fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1)
                 fig.update_yaxes(range=[0, 100], row=2, col=1)
             else:
-                fig.add_trace(go.Scatter(x=f_dates, y=f_macd, mode='lines', name='MACD', line=dict(color='#00b4d8', width=1.5)), row=2, col=1)
-                fig.add_trace(go.Scatter(x=f_dates, y=f_signal, mode='lines', name='Signal', line=dict(color='#ff9900', width=1.5)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=f_dates_str, y=f_macd, mode='lines', name='MACD', line=dict(color='#00b4d8', width=1.5)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=f_dates_str, y=f_signal, mode='lines', name='Signal', line=dict(color='#ff9900', width=1.5)), row=2, col=1)
                 
                 macd_hist = []
                 hist_colors = []
@@ -426,17 +434,20 @@ if is_valid_stock:
                         macd_hist.append(0)
                         hist_colors.append('#00b4d8')
                         
-                fig.add_trace(go.Bar(x=f_dates, y=macd_hist, marker_color=hist_colors, name='Histogram'), row=2, col=1)
+                fig.add_trace(go.Bar(x=f_dates_str, y=macd_hist, marker_color=hist_colors, name='Histogram'), row=2, col=1)
 
         st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
         
         fig.update_layout(
             hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False
         )
+        
+        # 🌟 핵심 패치 4: X축을 카테고리(Category)로 강제 지정하여 주말 빈칸 삭제 및 간격 최적화
+        fig.update_xaxes(type='category', nticks=15, row=1, col=1)
+        fig.update_xaxes(type='category', nticks=15, row=2, col=1)
+        
         max_vol = max(f_volumes) if f_volumes else 0
         fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
-        
-        if timeframe in ["1달", "1년"]: fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
         
         st.plotly_chart(fig, use_container_width=True)
 
