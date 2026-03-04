@@ -153,7 +153,6 @@ def calc_rsi(prices, period=14):
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
 
-# 🌟 단위 변환기 (K, M, B, T 적용)
 def format_abbrev(val, sym):
     if val == 0: return f"{sym}0"
     if val >= 1_000_000_000_000: return f"{sym}{val/1_000_000_000_000:.2f}T"
@@ -166,7 +165,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.3 (UI 깔끔 정리 패치)")
+    st.caption("CEO 터미널 V13.4 (미장 달러 버그 수정 & 캔들 강제 통통)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -257,18 +256,19 @@ def render_live_metrics(target_symbol, target_name):
     today_volume = meta.get('regularMarketVolume', 0)
     
     currency = meta.get('currency', 'USD') 
-    c_sym = "₩" if currency == "KRW" else "$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
+    
+    # 🌟 핵심 패치 1: Streamlit이 달러($) 기호를 LaTeX 수식으로 착각하지 못하도록 이스케이프(\$) 처리
+    c_sym_st = "₩" if currency == "KRW" else "\\$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
     
     day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
     high_52 = max(max(valid_highs) if valid_highs else 0, price)
     low_52 = min(min(valid_lows) if valid_lows else 0, price) if valid_lows else price
 
-    price_str = f"{c_sym}{int(price):,}" if currency in ["KRW", "JPY"] else f"{c_sym}{price:,.2f}"
-    highlow_str = f"{c_sym}{int(high_52):,} / {c_sym}{int(low_52):,}" if currency in ["KRW", "JPY"] else f"{c_sym}{high_52:,.2f} / {c_sym}{low_52:,.2f}"
+    price_str = f"{c_sym_st}{int(price):,}" if currency in ["KRW", "JPY"] else f"{c_sym_st}{price:,.2f}"
+    highlow_str = f"{c_sym_st}{int(high_52):,} / {c_sym_st}{int(low_52):,}" if currency in ["KRW", "JPY"] else f"{c_sym_st}{high_52:,.2f} / {c_sym_st}{low_52:,.2f}"
 
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
     
-    # 🌟 핵심 수정: 거래대금 칸 날리고 원래대로 4칸으로 복구
     kpi1, kpi2, kpi3, kpi4 = st.columns(4) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     with kpi2: 
@@ -297,8 +297,9 @@ if is_valid_stock:
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
         
+        # 🌟 Plotly 차트 안에서는 수식 버그가 안 나니까 원래 달러 기호 그대로 사용
         chart_currency = chart_res['meta'].get('currency', 'USD')
-        c_sym = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
+        c_sym_plot = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
 
         has_split = False
         if 'events' in chart_res and 'splits' in chart_res['events']:
@@ -368,10 +369,10 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') for d in f_dates]
-
-        # 🌟 툴팁에 들어갈 거래대금 포맷팅 (이건 그대로 유지)
-        formatted_tvals = [format_abbrev(c * v, c_sym) for c, v in zip(f_closes, f_volumes)]
+        # 🌟 핵심 패치 2: Plotly가 억지로 날짜 형식(date)으로 변환하는 걸 막기 위해 뒤에 보이지 않는 공백('\u200b') 추가
+        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
+        
+        formatted_tvals = [format_abbrev(c * v, c_sym_plot) for c, v in zip(f_closes, f_volumes)]
 
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True, 
@@ -403,7 +404,6 @@ if is_valid_stock:
             else: vol_colors.append(up_color)
 
         if len(f_dates_str) > 0:
-            # 🌟 마우스 올렸을 때 뜨는 통합 툴팁에 '거래대금' 얌전히 박혀있게 세팅
             fig.add_trace(go.Bar(
                 x=f_dates_str, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
                 customdata=formatted_tvals,
