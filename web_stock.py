@@ -165,7 +165,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.4 (미장 달러 버그 수정 & 캔들 강제 통통)")
+    st.caption("CEO 터미널 V13.5 (5/10년 주봉 쫀쫀 밀도 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -257,7 +257,6 @@ def render_live_metrics(target_symbol, target_name):
     
     currency = meta.get('currency', 'USD') 
     
-    # 🌟 핵심 패치 1: Streamlit이 달러($) 기호를 LaTeX 수식으로 착각하지 못하도록 이스케이프(\$) 처리
     c_sym_st = "₩" if currency == "KRW" else "\\$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
     
     day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
@@ -288,8 +287,9 @@ if is_valid_stock:
     st.write("") 
     st.markdown("---")
 
+    # 🌟 핵심 패치: 5년, 10년 interval을 '1mo'(월봉)에서 '1wk'(주봉)으로 변경!
     fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
-    interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1mo", "10년": "1mo"}
+    interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1wk"}
 
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
     chart_res_json = get_cached_json(chart_url)
@@ -297,7 +297,6 @@ if is_valid_stock:
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
         
-        # 🌟 Plotly 차트 안에서는 수식 버그가 안 나니까 원래 달러 기호 그대로 사용
         chart_currency = chart_res['meta'].get('currency', 'USD')
         c_sym_plot = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
 
@@ -369,7 +368,7 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        # 🌟 핵심 패치 2: Plotly가 억지로 날짜 형식(date)으로 변환하는 걸 막기 위해 뒤에 보이지 않는 공백('\u200b') 추가
+        # 날짜 뒤에 보이지 않는 공백('\u200b') 추가해서 캔들 강제로 통통하게 만드는 마법 그대로 유지
         f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
         
         formatted_tvals = [format_abbrev(c * v, c_sym_plot) for c, v in zip(f_closes, f_volumes)]
