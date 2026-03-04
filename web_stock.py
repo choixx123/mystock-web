@@ -19,7 +19,7 @@ st.markdown("""
     .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
     .news-title { font-size: 16px; font-weight: bold; color: #1E88E5 !important; text-decoration: none; }
     .delisted-alert { color: white; background-color: #ff4b4b; padding: 20px; border-radius: 10px; text-align: center; font-size: 24px; font-weight: bold; margin: 20px 0; }
-    .badge { background-color: #ff9900; color: white; padding: 3px 8px; border-radius: 12px; font-size: 14px; font-weight: bold; margin-left: 10px; vertical-align: middle; }
+    .badge { color: white; padding: 3px 8px; border-radius: 12px; font-size: 14px; font-weight: bold; margin-left: 10px; vertical-align: middle; }
     .closed-badge { background-color: #555; color: white; padding: 3px 8px; border-radius: 12px; font-size: 14px; font-weight: bold; margin-left: 10px; vertical-align: middle; }
     </style>
 """, unsafe_allow_html=True)
@@ -89,14 +89,13 @@ def get_cached_news(original_name):
                 link = item.find('link').text
                 source_elem = item.find('source')
                 source = source_elem.text if source_elem is not None else "구글 뉴스"
-                if " - " in title: 
-                    title = " - ".join(title.split(" - ")[:-1])
+                if " - " in title: title = " - ".join(title.split(" - ")[:-1])
                 news_list.append({"title": title, "link": link, "source": source})
     except Exception: 
         pass
     return news_list, clean_search_term
 
-# --- 보조지표 연산 (생략 없이 원본 유지) ---
+# --- 보조지표 연산 (생략 없이 V13.0 원본 유지) ---
 def calc_ma(prices, window):
     ma = []
     for i in range(len(prices)):
@@ -126,8 +125,7 @@ def calc_macd(prices):
         first_idx = valid_idx[0]
         signal[first_idx+8] = sum(macd[first_idx:first_idx+9]) / 9
         k = 2 / (9 + 1)
-        for i in range(first_idx+9, len(prices)): 
-            signal[i] = macd[i] * k + signal[i-1] * (1 - k)
+        for i in range(first_idx+9, len(prices)): signal[i] = macd[i] * k + signal[i-1] * (1 - k)
     return macd, signal
 
 def calc_rsi(prices, period=14):
@@ -160,7 +158,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V14.0 (휴장/상폐/분할 감지 추가)")
+    st.caption("CEO 터미널 V13.0 (상폐/휴장/분할 이식 완료)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -198,8 +196,9 @@ else:
             symbol = search_res['quotes'][0]['symbol']
             official_name = search_res['quotes'][0].get('shortname', english_name)
 
+# 🔥 멍청한 에러 대신, 똑똑한 상폐/검색불가 경고로 교체!
 if not symbol:
-    st.error(f"❌ '{original_name}' 정보가 없거나 야후 서버가 응답하지 않습니다.")
+    st.markdown(f'<div class="delisted-alert">🚨 상장폐지 또는 검색 불가 ({original_name})<br><span style="font-size: 16px; font-weight: normal;">야후 파이낸스에서 완전히 삭제되었거나 종목명을 잘못 입력했습니다.</span></div>', unsafe_allow_html=True)
     st.stop() 
 
 # 🚀 [구역 1: 라이브 메트릭 구역]
@@ -214,23 +213,47 @@ def render_live_metrics(target_symbol, target_name):
             else: st.metric(label=name, value="로딩중", delta="-")
     st.markdown("---")
 
-    # [수정포인트] 상장폐지 체크 & 휴장 체크를 위해 1년 데이터 호출
     res_1y_data = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{target_symbol}?range=1y&interval=1d")
     
-    # 상장폐지 또는 데이터 없는 경우 처리
+    # 데이터가 텅 빈 경우 방어
     if not res_1y_data or 'chart' not in res_1y_data or not res_1y_data['chart']['result']: 
-        st.markdown(f'<div class="delisted-alert">🚨 상장폐지됨 (또는 유효하지 않은 종목명: {target_symbol})</div>', unsafe_allow_html=True)
-        return False # 실패 반환하여 차트 안 그리게 함
+        st.markdown(f'<div class="delisted-alert">🚨 상장폐지 또는 검색 불가 ({target_symbol})</div>', unsafe_allow_html=True)
+        return False
         
     result_1y = res_1y_data['chart']['result'][0]
     meta = result_1y['meta']
-    quotes_1y = result_1y['indicators']['quote'][0]
     
-    # 휴장 상태 확인 (CLOSED, POSTPOST 등)
+    # 🚨 시체 판독기 로직 이식
+    last_trade_ts = meta.get('regularMarketTime', 0)
+    if last_trade_ts == 0 and result_1y.get('timestamp'):
+        last_trade_ts = result_1y['timestamp'][-1]
+        
+    is_dead = False
+    if last_trade_ts > 0:
+        last_trade_date = datetime.fromtimestamp(last_trade_ts, KST)
+        days_dead = (datetime.now(KST) - last_trade_date).days
+        
+        if days_dead > 7:
+            is_dead = True
+            st.markdown(f'<div class="delisted-alert">🚨 상장폐지 / 거래정지 됨 ({target_symbol}) <br><span style="font-size: 16px; font-weight: normal;">마지막 거래일: {last_trade_date.strftime("%Y-%m-%d")}</span></div>', unsafe_allow_html=True)
+
+    # ---------------------------------------------------------
+    # 🔥 장 상태(Market State) 정밀 판독 로직 이식
     market_state = meta.get('marketState', 'REGULAR')
-    is_closed = market_state in ['CLOSED', 'POST', 'POSTPOST', 'PREPRE']
-    closed_html = '<span class="closed-badge">💤 장 휴장일</span>' if is_closed else ''
     
+    if is_dead:
+        closed_html = '<span class="badge" style="background-color: #000000;">💀 영구 휴장(상폐)</span>'
+    elif market_state == 'REGULAR':
+        closed_html = '' 
+    elif market_state == 'PRE':
+        closed_html = '<span class="badge" style="background-color: #ff9900;">🌅 프리마켓</span>'
+    elif market_state in ['POST', 'POSTPOST']:
+        closed_html = '<span class="badge" style="background-color: #9933cc;">🌃 애프터마켓</span>'
+    else: 
+        closed_html = '<span class="closed-badge">💤 장 휴장일</span>'
+    # ---------------------------------------------------------
+    
+    quotes_1y = result_1y['indicators']['quote'][0]
     valid_closes = [p for p in quotes_1y.get('close', []) if p is not None]
     valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
     valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
@@ -252,16 +275,19 @@ def render_live_metrics(target_symbol, target_name):
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
     
     kpi1, kpi2, kpi3, kpi4 = st.columns([1.2, 1.2, 1.6, 1.2]) 
-    with kpi1: st.metric(label=f"💰 현재가", value=price_str, delta=f"{day_change_pct:+.2f}%")
+    with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     with kpi2: 
         if currency != "KRW":
             ex_rate_res = get_cached_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X")
             if ex_rate_res: st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']):,} 원")
         else: st.empty() 
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    with kpi4: st.metric(label="📊 거래량", value=f"{int(today_volume):,} 주")
+    with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=f"{int(today_volume):,} 주")
     
-    return True # 성공 반환
+    if is_dead:
+        return False
+        
+    return True 
 
 is_valid_stock = render_live_metrics(symbol, official_name)
 
@@ -278,14 +304,13 @@ if is_valid_stock:
 
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
-        currency = chart_res['meta'].get('currency', 'USD')
         
-        # [수정포인트] 액면분할 감지 로직
+        # 🔥 액면분할 감지 로직 이식
         has_split = False
         if 'events' in chart_res and 'splits' in chart_res['events']:
             has_split = True
             
-        split_html = '<span class="badge">✂️ 액면분할 됨</span>' if has_split else ''
+        split_html = '<span class="badge" style="background-color: #ff9900;">✂️ 액면분할 됨</span>' if has_split else ''
         
         dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res.get('timestamp', [])]
         quote = chart_res['indicators']['quote'][0]
@@ -402,7 +427,7 @@ if is_valid_stock:
                         
                 fig.add_trace(go.Bar(x=f_dates, y=macd_hist, marker_color=hist_colors, name='Histogram'), row=2, col=1)
 
-        # 타이틀 옆에 액면분할 배지 추가
+        # 🔥 차트 제목 옆에 액면분할 배지 추가 완료!
         st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
         
         fig.update_layout(
@@ -415,7 +440,7 @@ if is_valid_stock:
         
         st.plotly_chart(fig, use_container_width=True)
 
-# 📰 뉴스 (상장폐지 여부 상관없이 띄워줌)
+# 📰 뉴스
 st.markdown("---")
 st.markdown(f"### 📰 {original_name} 최신 뉴스")
 news_list, clean_search_term = get_cached_news(original_name)
