@@ -166,7 +166,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.2 (통통한 캔들 + 툴팁 거래대금 적용)")
+    st.caption("CEO 터미널 V13.3 (UI 깔끔 정리 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -268,7 +268,8 @@ def render_live_metrics(target_symbol, target_name):
 
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
     
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.1, 1.1, 1.4, 1.1, 1.2]) 
+    # 🌟 핵심 수정: 거래대금 칸 날리고 원래대로 4칸으로 복구
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     with kpi2: 
         if currency != "KRW":
@@ -277,10 +278,6 @@ def render_live_metrics(target_symbol, target_name):
         else: st.empty() 
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
     with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=format_abbrev(today_volume, ""))
-    
-    trading_val = price * today_volume
-    tval_str = format_abbrev(trading_val, c_sym)
-    with kpi5: st.metric(label="💸 거래대금", value=tval_str)
     
     if is_dead: return False
     return True 
@@ -300,7 +297,6 @@ if is_valid_stock:
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
         
-        # 🌟 차트에서도 화폐 기호 가져오기 (툴팁용)
         chart_currency = chart_res['meta'].get('currency', 'USD')
         c_sym = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
 
@@ -372,10 +368,9 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        # 🌟 핵심 패치 1: 빈 공백 없애고 캔들 통통하게 만들기 위해 날짜를 문자열(카테고리)로 변환
         f_dates_str = [d.strftime('%Y-%m-%d %H:%M') if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') for d in f_dates]
 
-        # 🌟 핵심 패치 2: 툴팁에 넣을 거래대금 문자열 (K, M, B, T 적용) 미리 계산
+        # 🌟 툴팁에 들어갈 거래대금 포맷팅 (이건 그대로 유지)
         formatted_tvals = [format_abbrev(c * v, c_sym) for c, v in zip(f_closes, f_volumes)]
 
         fig = make_subplots(
@@ -408,7 +403,7 @@ if is_valid_stock:
             else: vol_colors.append(up_color)
 
         if len(f_dates_str) > 0:
-            # 🌟 핵심 패치 3: 볼륨 바 툴팁에 거래대금(customdata) 추가!
+            # 🌟 마우스 올렸을 때 뜨는 통합 툴팁에 '거래대금' 얌전히 박혀있게 세팅
             fig.add_trace(go.Bar(
                 x=f_dates_str, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
                 customdata=formatted_tvals,
@@ -442,7 +437,6 @@ if is_valid_stock:
             hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False
         )
         
-        # 🌟 핵심 패치 4: X축을 카테고리(Category)로 강제 지정하여 주말 빈칸 삭제 및 간격 최적화
         fig.update_xaxes(type='category', nticks=15, row=1, col=1)
         fig.update_xaxes(type='category', nticks=15, row=2, col=1)
         
