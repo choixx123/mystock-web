@@ -153,15 +153,24 @@ def calc_rsi(prices, period=14):
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
 
+# 🌟 단위 변환기 (K, M, B, T 적용)
+def format_abbrev(val, sym):
+    if val == 0: return f"{sym}0"
+    if val >= 1_000_000_000_000: return f"{sym}{val/1_000_000_000_000:.2f}T"
+    if val >= 1_000_000_000: return f"{sym}{val/1_000_000_000:.2f}B"
+    if val >= 1_000_000: return f"{sym}{val/1_000_000:.2f}M"
+    if val >= 1_000: return f"{sym}{val/1_000:.2f}K"
+    return f"{sym}{val:.2f}"
+
 with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.0 (풀옵션 패치 완료)")
+    st.caption("CEO 터미널 V13.1 (단위 변환/월봉 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
-if "search_input" not in st.session_state: st.session_state.search_input = "테슬라"
+if "search_input" not in st.session_state: st.session_state.search_input = "삼성전자"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 def apply_vip_search():
@@ -178,7 +187,7 @@ with col3:
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
-timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=2)
+timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=5)
 st.markdown("---")
 
 original_name = search_term.strip()
@@ -227,23 +236,17 @@ def render_live_metrics(target_symbol, target_name):
     if last_trade_ts > 0:
         last_trade_date = datetime.fromtimestamp(last_trade_ts, KST)
         days_dead = (datetime.now(KST) - last_trade_date).days
-        
         if days_dead > 7:
             is_dead = True
             st.markdown(f'<div class="delisted-alert">🚨 상장폐지 / 거래정지 됨 ({target_symbol}) <br><span style="font-size: 16px; font-weight: normal;">마지막 거래일: {last_trade_date.strftime("%Y-%m-%d")}</span></div>', unsafe_allow_html=True)
 
     market_state = meta.get('marketState', 'REGULAR')
     
-    if is_dead:
-        closed_html = '<span class="badge" style="background-color: #000000;">💀 영구 휴장(상폐)</span>'
-    elif market_state == 'REGULAR':
-        closed_html = '' 
-    elif market_state == 'PRE':
-        closed_html = '<span class="badge" style="background-color: #ff9900;">🌅 프리마켓</span>'
-    elif market_state in ['POST', 'POSTPOST']:
-        closed_html = '<span class="badge" style="background-color: #9933cc;">🌃 애프터마켓</span>'
-    else: 
-        closed_html = '<span class="closed-badge">💤 장 휴장일</span>'
+    if is_dead: closed_html = '<span class="badge" style="background-color: #000000;">💀 영구 휴장(상폐)</span>'
+    elif market_state == 'REGULAR': closed_html = '' 
+    elif market_state == 'PRE': closed_html = '<span class="badge" style="background-color: #ff9900;">🌅 프리마켓</span>'
+    elif market_state in ['POST', 'POSTPOST']: closed_html = '<span class="badge" style="background-color: #9933cc;">🌃 애프터마켓</span>'
+    else: closed_html = '<span class="closed-badge">💤 장 휴장일</span>'
     
     quotes_1y = result_1y['indicators']['quote'][0]
     valid_closes = [p for p in quotes_1y.get('close', []) if p is not None]
@@ -253,41 +256,39 @@ def render_live_metrics(target_symbol, target_name):
     price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
     prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
     today_volume = meta.get('regularMarketVolume', 0)
+    
+    # 🔥 화폐 기호 완벽 패치
     currency = meta.get('currency', 'USD') 
+    c_sym = "₩" if currency == "KRW" else "$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
     
     day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
     high_52 = max(max(valid_highs) if valid_highs else 0, price)
     low_52 = min(min(valid_lows) if valid_lows else 0, price) if valid_lows else price
 
-    c_sym = "₩" if currency == "KRW" else "＄" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
-    
-    price_str = f"{int(price):,} 원" if currency == "KRW" else f"{c_sym}{price:,.2f}"
-    highlow_str = f"{int(high_52):,} / {int(low_52):,} 원" if currency == "KRW" else f"{c_sym}{high_52:,.2f} / {c_sym}{low_52:,.2f}"
+    price_str = f"{c_sym}{int(price):,}" if currency in ["KRW", "JPY"] else f"{c_sym}{price:,.2f}"
+    highlow_str = f"{c_sym}{int(high_52):,} / {c_sym}{int(low_52):,}" if currency in ["KRW", "JPY"] else f"{c_sym}{high_52:,.2f} / {c_sym}{low_52:,.2f}"
 
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
     
-    # 🔥 5칸으로 확장 및 거래대금 로직 이식 완벽 적용
+    # 🔥 거래대금 & KPI 5칸 확실하게 배치
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1.1, 1.1, 1.4, 1.1, 1.2]) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     with kpi2: 
         if currency != "KRW":
             ex_rate_res = get_cached_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X")
-            if ex_rate_res: st.metric(label="🇰🇷 원화 환산가", value=f"약 {int(price * ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']):,} 원")
+            if ex_rate_res: st.metric(label="🇰🇷 원화 환산가", value=f"약 ₩{int(price * ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']):,}")
         else: st.empty() 
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=f"{int(today_volume):,} 주")
     
+    # 📊 거래량 포맷팅 (K, M, B)
+    with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=format_abbrev(today_volume, ""))
+    
+    # 💸 거래대금 포맷팅 (K, M, B) + 국가별 화폐 기호
     trading_val = price * today_volume
-    if currency == "KRW":
-        tval_str = f"{int(trading_val / 100000000):,}억 원"
-    else:
-        tval_str = f"{c_sym}{trading_val / 1000000:,.2f}M"
-        
+    tval_str = format_abbrev(trading_val, c_sym)
     with kpi5: st.metric(label="💸 거래대금", value=tval_str)
     
-    if is_dead:
-        return False
-        
+    if is_dead: return False
     return True 
 
 is_valid_stock = render_live_metrics(symbol, official_name)
@@ -296,9 +297,9 @@ if is_valid_stock:
     st.write("") 
     st.markdown("---")
 
-    # 🔥 10년 조회 시 에러 나던 1mo(월봉)을 1wk(주봉)으로 수정 완벽 적용
+    # 🔥 5년/10년 조회 시 캔들 두께 확보를 위해 1mo(월봉)으로 변경
     fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
-    interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1wk"}
+    interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1mo", "10년": "1mo"}
 
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
     chart_res_json = get_cached_json(chart_url)
