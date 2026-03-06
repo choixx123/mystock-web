@@ -165,7 +165,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.5 (5/10년 주봉 쫀쫀 밀도 패치)")
+    st.caption("CEO 터미널 V13.6 (글로벌 환율 연동 거래대금 원화 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -270,11 +270,18 @@ def render_live_metrics(target_symbol, target_name):
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
+    
+    # 🌟 환율 패치 1: KPI 카드에 국가별 환율 동적 적용
     with kpi2: 
         if currency != "KRW":
-            ex_rate_res = get_cached_json("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X")
-            if ex_rate_res: st.metric(label="🇰🇷 원화 환산가", value=f"약 ₩{int(price * ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']):,}")
+            # 종목 통화에 맞춰 동적으로 환율 호출 (예: USDKRW=X, EURKRW=X, JPYKRW=X 등)
+            ex_rate_res = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X")
+            if ex_rate_res and ex_rate_res.get('chart') and ex_rate_res['chart'].get('result'): 
+                curr_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
+                st.metric(label="🇰🇷 원화 환산가", value=f"약 ₩{int(price * curr_rate):,}")
+            else: st.empty()
         else: st.empty() 
+        
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
     with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=format_abbrev(today_volume, ""))
     
@@ -287,7 +294,6 @@ if is_valid_stock:
     st.write("") 
     st.markdown("---")
 
-    # 🌟 핵심 패치: 5년, 10년 interval을 '1mo'(월봉)에서 '1wk'(주봉)으로 변경!
     fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
     interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1wk"}
 
@@ -299,6 +305,13 @@ if is_valid_stock:
         
         chart_currency = chart_res['meta'].get('currency', 'USD')
         c_sym_plot = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
+
+        # 🌟 환율 패치 2: 차트 거래대금 계산용 실시간 환율 당겨오기
+        ex_rate_for_chart = 1.0
+        if chart_currency != "KRW":
+            ex_rate_req = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{chart_currency}KRW=X?range=1d&interval=1d")
+            if ex_rate_req and ex_rate_req.get('chart') and ex_rate_req['chart'].get('result'):
+                ex_rate_for_chart = ex_rate_req['chart']['result'][0]['meta']['regularMarketPrice']
 
         has_split = False
         if 'events' in chart_res and 'splits' in chart_res['events']:
@@ -368,10 +381,17 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        # 날짜 뒤에 보이지 않는 공백('\u200b') 추가해서 캔들 강제로 통통하게 만드는 마법 그대로 유지
         f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
         
-        formatted_tvals = [format_abbrev(c * v, c_sym_plot) for c, v in zip(f_closes, f_volumes)]
+        # 🌟 환율 패치 3: 툴팁에 띄울 문자열 포맷팅 (원화 메인 + 원래 통화 괄호)
+        formatted_tvals = []
+        for c, v in zip(f_closes, f_volumes):
+            orig_str = format_abbrev(c * v, c_sym_plot)
+            if chart_currency != "KRW" and ex_rate_for_chart != 1.0:
+                krw_str = format_abbrev(c * v * ex_rate_for_chart, "₩")
+                formatted_tvals.append(f"약 {krw_str} ({orig_str})")
+            else:
+                formatted_tvals.append(orig_str)
 
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True, 
