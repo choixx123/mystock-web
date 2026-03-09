@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import urllib.parse
+from bs4 import BeautifulSoup  # 🌟 네이버 크롤링을 위한 필수 라이브러리 추가됨
 
 # 한국 표준시(KST) 설정
 KST = timezone(timedelta(hours=9)) 
@@ -36,6 +37,9 @@ vip_dict = {
     "루이비통 (프랑스)": "MC.PA", "루이비통 (미국)": "LVMUY"
 }
 
+# ==========================================
+# 🚀 [엔진 1] 야후 파이낸스 & API 로직
+# ==========================================
 @st.cache_data(ttl=5, show_spinner=False)
 def get_cached_json(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -74,6 +78,35 @@ def get_quick_quote(symbol):
         return price, ((price - prev) / prev * 100) if prev else 0
     return 0, 0
 
+# ==========================================
+# 🇰🇷 [엔진 2] 네이버 증권 실시간 엔진 (한국주식 전용)
+# ==========================================
+@st.cache_data(ttl=5, show_spinner=False)
+def get_naver_stock_data(code):
+    url = f"https://finance.naver.com/item/sise.naver?code={code}"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # 문자열에서 숫자, 소수점, 마이너스 기호만 남기고 필터링 (완벽 호환)
+        price_str = re.sub(r'[^\d]', '', soup.select_one('#_nowVal').text)
+        rate_str = re.sub(r'[^\d\.\-]', '', soup.select_one('#_rate').text)
+        vol_str = re.sub(r'[^\d]', '', soup.select_one('#_quant').text)
+        amount_str = re.sub(r'[^\d]', '', soup.select_one('#_amount').text)
+
+        return {
+            "price": float(price_str),
+            "rate": float(rate_str),
+            "volume": int(vol_str),
+            "amount": int(amount_str) * 1000000  # 네이버는 '백만원' 단위이므로 원 단위로 복구
+        }
+    except Exception as e:
+        return None
+
+# ==========================================
+# 🧠 뉴스 및 차트 지표 계산 로직
+# ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_news(original_name):
     clean_search_term = original_name.split('(')[0].strip()
@@ -161,11 +194,14 @@ def format_abbrev(val, sym):
     if val >= 1_000: return f"{sym}{val/1_000:.2f}K"
     return f"{sym}{val:.2f}"
 
+# ==========================================
+# 🖥️ UI 및 메인 실행부
+# ==========================================
 with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.6 (글로벌 환율 연동 거래대금 원화 패치)")
+    st.caption("CEO 터미널 V13.7 (네이버 증권 하이브리드 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -251,15 +287,27 @@ def render_live_metrics(target_symbol, target_name):
     valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
     valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
     
+    # 기본 야후 데이터 셋업
     price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
     prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
     today_volume = meta.get('regularMarketVolume', 0)
-    
+    day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
     currency = meta.get('currency', 'USD') 
     
+    # 🌟 핵심 패치: 한국 주식일 경우 네이버 데이터로 덮어쓰기 (Override)
+    naver_amount = None
+    is_kr_stock = target_symbol.endswith(".KS") or target_symbol.endswith(".KQ")
+    if is_kr_stock:
+        naver_code = target_symbol.split('.')[0]
+        naver_data = get_naver_stock_data(naver_code)
+        if naver_data:
+            price = naver_data["price"]
+            day_change_pct = naver_data["rate"]
+            today_volume = naver_data["volume"]
+            naver_amount = naver_data["amount"]
+
+    # 출력 포맷팅
     c_sym_st = "₩" if currency == "KRW" else "\\$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
-    
-    day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
     high_52 = max(max(valid_highs) if valid_highs else 0, price)
     low_52 = min(min(valid_lows) if valid_lows else 0, price) if valid_lows else price
 
@@ -271,10 +319,12 @@ def render_live_metrics(target_symbol, target_name):
     kpi1, kpi2, kpi3, kpi4 = st.columns(4) 
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
     
-    # 🌟 환율 패치 1: KPI 카드에 국가별 환율 동적 적용
     with kpi2: 
-        if currency != "KRW":
-            # 종목 통화에 맞춰 동적으로 환율 호출 (예: USDKRW=X, EURKRW=X, JPYKRW=X 등)
+        if is_kr_stock and naver_amount is not None:
+            # 🌟 한국 주식은 두 번째 칸에 '거래대금' 고정 출력
+            st.metric(label="💸 거래대금", value=format_abbrev(naver_amount, "₩"))
+        elif currency != "KRW":
+            # 해외 주식은 기존처럼 원화 환산가 출력
             ex_rate_res = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X")
             if ex_rate_res and ex_rate_res.get('chart') and ex_rate_res['chart'].get('result'): 
                 curr_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
@@ -306,7 +356,6 @@ if is_valid_stock:
         chart_currency = chart_res['meta'].get('currency', 'USD')
         c_sym_plot = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
 
-        # 🌟 환율 패치 2: 차트 거래대금 계산용 실시간 환율 당겨오기
         ex_rate_for_chart = 1.0
         if chart_currency != "KRW":
             ex_rate_req = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{chart_currency}KRW=X?range=1d&interval=1d")
@@ -383,7 +432,6 @@ if is_valid_stock:
 
         f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
         
-        # 🌟 환율 패치 3: 툴팁에 띄울 문자열 포맷팅 (원화 메인 + 원래 통화 괄호)
         formatted_tvals = []
         for c, v in zip(f_closes, f_volumes):
             orig_str = format_abbrev(c * v, c_sym_plot)
