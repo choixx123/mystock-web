@@ -333,11 +333,14 @@ def render_live_metrics(target_symbol, target_name):
         else: st.empty() 
         
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    # 아래 줄을 이렇게 덮어써버려!
-    with kpi4: st.metric(label="📊 거래량", value=format_abbrev(today_volume, ""))
     
+    # 🚨 이 부분을 통째로 아래 코드로 덮어써라! 변수 다 무시하고 무조건 화면에 찍어내는 코드다.
+    with kpi4: 
+        st.error("🚨 KPI4 영역 강제 접속 완료")
+        st.metric(label="📊 거래량", value="강제출력 100")
+        
     if is_dead: return False
-    return True 
+    return True
 
 is_valid_stock = render_live_metrics(symbol, official_name)
 
