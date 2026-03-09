@@ -333,7 +333,8 @@ def render_live_metrics(target_symbol, target_name):
         else: st.empty() 
         
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    with kpi4: st.metric(label=f"📊 {'마지막 거래량' if is_dead else '거래량'}", value=format_abbrev(today_volume, ""))
+    # 아래 줄을 이렇게 덮어써버려!
+    with kpi4: st.metric(label="📊 거래량", value=format_abbrev(today_volume, ""))
     
     if is_dead: return False
     return True 
@@ -525,4 +526,3 @@ if news_list:
         """, unsafe_allow_html=True)
 else:
     st.info("💡 뉴스를 불러올 수 없습니다.")
-    
