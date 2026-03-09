@@ -334,10 +334,17 @@ def render_live_metrics(target_symbol, target_name):
         
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
     
-    # 🚨 이 부분을 통째로 아래 코드로 덮어써라! 변수 다 무시하고 무조건 화면에 찍어내는 코드다.
     with kpi4: 
-        st.error("🚨 KPI4 영역 강제 접속 완료")
-        st.metric(label="📊 거래량", value="강제출력 100")
+        # 🛡️ 거래량 데이터가 비어있거나 계산 중 에러가 날 경우를 대비한 방어막
+        try:
+            if today_volume is None or str(today_volume).strip() == "" or str(today_volume) == "nan":
+                volume_str = "데이터 없음"
+            else:
+                volume_str = format_abbrev(today_volume, "")
+        except Exception:
+            volume_str = "에러"
+            
+        st.metric(label="📊 거래량", value=volume_str)
         
     if is_dead: return False
     return True
