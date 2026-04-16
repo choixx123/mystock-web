@@ -512,7 +512,7 @@ if is_valid_stock:
         st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
         
         fig.update_layout(
-            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False
+            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False, dragmode=False
         )
         
         fig.update_xaxes(type='category', nticks=15, row=1, col=1)
