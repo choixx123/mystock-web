@@ -512,11 +512,11 @@ if is_valid_stock:
         st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
         
         fig.update_layout(
-            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False, dragmode=False
+            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False
         )
         
-        fig.update_xaxes(type='category', nticks=15, row=1, col=1)
-        fig.update_xaxes(type='category', nticks=15, row=2, col=1)
+        fig.update_xaxes(type='category', nticks=15, row=1, col=1, fixedrange=True)
+        fig.update_xaxes(type='category', nticks=15, row=2, col=1, fixedrange=True)
         
         max_vol = max(f_volumes) if f_volumes else 0
         fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True, fixedrange=True)
