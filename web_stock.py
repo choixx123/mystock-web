@@ -89,7 +89,6 @@ def get_naver_stock_data(code):
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
 
-        # 문자열에서 숫자, 소수점, 마이너스 기호만 남기고 필터링 (완벽 호환)
         price_str = re.sub(r'[^\d]', '', soup.select_one('#_nowVal').text)
         rate_str = re.sub(r'[^\d\.\-]', '', soup.select_one('#_rate').text)
         vol_str = re.sub(r'[^\d]', '', soup.select_one('#_quant').text)
@@ -99,7 +98,7 @@ def get_naver_stock_data(code):
             "price": float(price_str),
             "rate": float(rate_str),
             "volume": int(vol_str),
-            "amount": int(amount_str) * 1000000  # 네이버는 '백만원' 단위이므로 원 단위로 복구
+            "amount": int(amount_str) * 1000000
         }
     except Exception as e:
         return None
@@ -186,6 +185,21 @@ def calc_rsi(prices, period=14):
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
 
+# ✅ [추가] 볼린저 밴드 계산 함수
+def calc_bb(prices, window=20, num_std=2):
+    upper, mid, lower = [], [], []
+    for i in range(len(prices)):
+        if i < window - 1:
+            upper.append(None); mid.append(None); lower.append(None)
+        else:
+            subset = prices[i-window+1:i+1]
+            m = sum(subset) / window
+            std = (sum((x - m) ** 2 for x in subset) / window) ** 0.5
+            mid.append(m)
+            upper.append(m + num_std * std)
+            lower.append(m - num_std * std)
+    return upper, mid, lower
+
 def format_abbrev(val, sym):
     if val == 0: return f"{sym}0"
     if val >= 1_000_000_000_000: return f"{sym}{val/1_000_000_000_000:.2f}T"
@@ -201,7 +215,7 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.7 (네이버 증권 하이브리드 패치)")
+    st.caption("CEO 터미널 V13.8 (볼린저밴드 + 프로그레스바 + 봉 단위 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
@@ -220,9 +234,11 @@ with col3:
     st.write("") 
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
+    show_bb = st.toggle("📐 볼린저 밴드", value=False)  # ✅ [추가] 볼린저 밴드 토글
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
-timeframe = st.radio("⏳ 조회 기간 선택", ["1일", "1주일", "1달", "1년", "5년", "10년"], horizontal=True, index=5)
+# ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
+timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
 
 original_name = search_term.strip()
@@ -287,14 +303,12 @@ def render_live_metrics(target_symbol, target_name):
     valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
     valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
     
-    # 기본 야후 데이터 셋업
     price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
     prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
     today_volume = meta.get('regularMarketVolume', 0)
     day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
     currency = meta.get('currency', 'USD') 
     
-    # 🌟 핵심 패치: 한국 주식일 경우 네이버 데이터로 덮어쓰기 (Override)
     naver_amount = None
     is_kr_stock = target_symbol.endswith(".KS") or target_symbol.endswith(".KQ")
     if is_kr_stock:
@@ -306,7 +320,6 @@ def render_live_metrics(target_symbol, target_name):
             today_volume = naver_data["volume"]
             naver_amount = naver_data["amount"]
 
-    # 출력 포맷팅
     c_sym_st = "₩" if currency == "KRW" else "\\$" if currency == "USD" else "€" if currency == "EUR" else "¥" if currency == "JPY" else f"{currency} "
     high_52 = max(max(valid_highs) if valid_highs else 0, price)
     low_52 = min(min(valid_lows) if valid_lows else 0, price) if valid_lows else price
@@ -321,10 +334,8 @@ def render_live_metrics(target_symbol, target_name):
     
     with kpi2: 
         if is_kr_stock and naver_amount is not None:
-            # 🌟 한국 주식은 두 번째 칸에 '거래대금' 고정 출력
             st.metric(label="💸 거래대금", value=format_abbrev(naver_amount, "₩"))
         elif currency != "KRW":
-            # 해외 주식은 기존처럼 원화 환산가 출력
             ex_rate_res = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X")
             if ex_rate_res and ex_rate_res.get('chart') and ex_rate_res['chart'].get('result'): 
                 curr_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
@@ -335,7 +346,6 @@ def render_live_metrics(target_symbol, target_name):
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
     
     with kpi4: 
-        # 🛡️ 거래량 데이터가 비어있거나 계산 중 에러가 날 경우를 대비한 방어막
         try:
             if today_volume is None or str(today_volume).strip() == "" or str(today_volume) == "nan":
                 volume_str = "데이터 없음"
@@ -345,7 +355,21 @@ def render_live_metrics(target_symbol, target_name):
             volume_str = "에러"
             
         st.metric(label="📊 거래량", value=volume_str)
-        
+
+    # ✅ [추가] 52주 프로그레스 바
+    if high_52 > low_52:
+        progress_pct = int(max(0, min(100, (price - low_52) / (high_52 - low_52) * 100)))
+        bar_color = "#ff4b4b" if progress_pct >= 80 else "#ff9900" if progress_pct >= 50 else "#00b4d8"
+        st.markdown(f"""
+            <div style="margin: 12px 0 4px 0; font-size: 13px; color: #888;">
+                📍 52주 위치 &nbsp;<b style="color:{bar_color}">{progress_pct}%</b>
+                &nbsp;|&nbsp; 저가 {c_sym_st}{int(low_52):,} ↔ 고가 {c_sym_st}{int(high_52):,}
+            </div>
+            <div style="background:#e0e0e0; border-radius:6px; height:10px; margin-bottom:8px;">
+                <div style="background:{bar_color}; width:{progress_pct}%; height:10px; border-radius:6px;"></div>
+            </div>
+        """, unsafe_allow_html=True)
+
     if is_dead: return False
     return True
 
@@ -355,8 +379,9 @@ if is_valid_stock:
     st.write("") 
     st.markdown("---")
 
-    fetch_range_map = {"1일": "5d", "1주일": "1mo", "1달": "6mo", "1년": "2y", "5년": "10y", "10년": "max"}
-    interval_map = {"1일": "5m", "1주일": "15m", "1달": "1d", "1년": "1d", "5년": "1wk", "10년": "1wk"}
+    # ✅ [변경] 분봉/일봉/월봉/연봉/5년/10년 에 맞는 range & interval
+    fetch_range_map = {"분봉": "1d", "일봉": "1y", "월봉": "5y", "연봉": "max", "5년": "5y", "10년": "max"}
+    interval_map    = {"분봉": "5m", "일봉": "1d", "월봉": "1mo", "연봉": "3mo", "5년": "1wk", "10년": "1wk"}
 
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
     chart_res_json = get_cached_json(chart_url)
@@ -405,7 +430,8 @@ if is_valid_stock:
         f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes = [], [], [], [], [], []
         f_ma20, f_ma60, f_rsi, f_macd, f_signal = [], [], [], [], []
 
-        if timeframe == "1일" and len(clean_data) > 0:
+        # ✅ [변경] "1일" → "분봉"
+        if timeframe == "분봉" and len(clean_data) > 0:
             session_start_idx = 0
             for i in range(len(clean_data) - 1, 0, -1):
                 if (clean_data[i][0] - clean_data[i-1][0]).total_seconds() > 4 * 3600: 
@@ -424,8 +450,10 @@ if is_valid_stock:
                 f_macd.append(macd_full[i])
                 f_signal.append(macd_signal_full[i])
                 
-        elif timeframe != "1일":
-            cutoff_days = {"1주일": 7, "1달": 30, "1년": 365, "5년": 365*5, "10년": 365*10}.get(timeframe, 30)
+        # ✅ [변경] "1일" → "분봉"
+        elif timeframe != "분봉":
+            # ✅ [변경] cutoff_days 새 timeframe에 맞게 변경
+            cutoff_days = {"일봉": 365, "월봉": 365*5, "연봉": 365*30, "5년": 365*5, "10년": 365*10}.get(timeframe, 365)
             cutoff_date = datetime.now(KST) - timedelta(days=cutoff_days)
             for i in range(len(clean_data)):
                 if clean_data[i][0] >= cutoff_date:
@@ -441,7 +469,14 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe in ['1일', '1주일'] else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
+        # ✅ [추가] 볼린저 밴드 계산 (이미 필터링된 f_closes 사용, API 추가 없음)
+        if show_bb and len(f_closes) >= 20:
+            f_bb_upper, f_bb_mid, f_bb_lower = calc_bb(f_closes)
+        else:
+            f_bb_upper = f_bb_mid = f_bb_lower = [None] * len(f_closes)
+
+        # ✅ [변경] 분봉만 시:분 표시, 나머지는 날짜만
+        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe == '분봉' else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
         
         formatted_tvals = []
         for c, v in zip(f_closes, f_volumes):
@@ -472,9 +507,16 @@ if is_valid_stock:
                 x=f_dates_str, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)
             ), row=1, col=1, secondary_y=False)
 
-        if timeframe in ["1일", "1주일", "1달", "1년"] and len(f_dates_str) > 0:
+        # ✅ [변경] MA는 분봉/일봉/월봉/연봉에서 표시
+        if timeframe in ["분봉", "일봉", "월봉", "연봉"] and len(f_dates_str) > 0:
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
+
+        # ✅ [추가] 볼린저 밴드 트레이스
+        if show_bb and len(f_dates_str) > 0 and any(v is not None for v in f_bb_upper):
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_upper, mode='lines', name='BB 상단', line=dict(color='rgba(0,180,216,0.4)', width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_lower, mode='lines', name='BB 하단', line=dict(color='rgba(0,180,216,0.4)', width=1), fill='tonexty', fillcolor='rgba(0,180,216,0.05)'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_mid, mode='lines', name='BB 중심', line=dict(color='rgba(0,180,216,0.6)', width=1, dash='dot')), row=1, col=1)
 
         vol_colors = []
         for i in range(len(f_closes)):
