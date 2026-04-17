@@ -15,6 +15,15 @@ KST = timezone(timedelta(hours=9))
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
+if st.session_state.dark_mode:
+    st.markdown("""
+        <style>
+        .stApp { background-color: #1a1a2e; color: #e0e0e0; }
+        .news-card { background: #16213e !important; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
+        .stMetric { background: #16213e; border-radius: 8px; padding: 8px; }
+        </style>
+    """, unsafe_allow_html=True)
+
 st.markdown("""
     <style>
     .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
@@ -221,6 +230,7 @@ st.title("🌍 글로벌 주식 터미널")
 
 if "search_input" not in st.session_state: st.session_state.search_input = "삼성전자"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
+if "dark_mode" not in st.session_state: st.session_state.dark_mode = False  # ✅ 추가
 
 def apply_vip_search():
     if st.session_state.vip_dropdown != "🔽 주요 종목 선택":
@@ -231,7 +241,8 @@ col1, col2, col3 = st.columns([4, 2, 2])
 with col1: search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
 with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
-    st.write("") 
+    st.write("")
+    dark_mode = st.toggle("🌙 다크모드", key="dark_mode")
     live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
     show_bb = st.toggle("📐 볼린저 밴드", value=False)  # ✅ [추가] 볼린저 밴드 토글
@@ -554,8 +565,9 @@ if is_valid_stock:
         st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
         
         fig.update_layout(
-            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False
-        )
+             hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False,
+             template="plotly_dark" if dark_mode else "plotly"
+)
         
         fig.update_xaxes(type='category', nticks=15, row=1, col=1)
         fig.update_xaxes(type='category', nticks=15, row=2, col=1)
