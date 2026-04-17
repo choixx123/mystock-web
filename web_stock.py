@@ -20,6 +20,7 @@ if st.session_state.dark_mode:
     st.markdown("""
         <style>
         .stApp { background-color: #1a1a2e; color: #e0e0e0; }
+        .stApp * { color: #e0e0e0 !important; }
         .news-card { background: #16213e !important; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
         .stMetric { background: #16213e; border-radius: 8px; padding: 8px; }
         </style>
