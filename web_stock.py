@@ -15,6 +15,7 @@ KST = timezone(timedelta(hours=9))
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
+if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
 if st.session_state.dark_mode:
     st.markdown("""
         <style>
