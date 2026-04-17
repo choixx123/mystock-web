@@ -575,7 +575,7 @@ if is_valid_stock:
         fig.update_xaxes(type='category', nticks=15, row=2, col=1)
         
         max_vol = max(f_volumes) if f_volumes else 0
-        fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True)
+        fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True, fixedrange=True)
         
         st.plotly_chart(fig, use_container_width=True)  
 
