@@ -252,7 +252,8 @@ with col3:
 
 # ✅ [추가] 연관 종목 추천
 if search_term.strip():
-    suggest_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={search_term.strip()}&lang=ko&region=KR")
+    english_suggest, _ = translate_to_english(search_term.strip())
+    suggest_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={english_suggest}")
     st.write(suggest_res)
 
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
