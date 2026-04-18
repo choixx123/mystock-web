@@ -249,20 +249,11 @@ with col3:
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
     show_bb = st.toggle("📐 볼린저 밴드", value=False)  # ✅ [추가] 볼린저 밴드 토글
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
-    
+
 # ✅ [추가] 연관 종목 추천
 if search_term.strip():
     suggest_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={search_term.strip()}&lang=ko&region=KR")
-    if suggest_res and suggest_res.get('quotes') and len(suggest_res['quotes']) > 1:
-        suggest_cols = st.columns(len(suggest_res['quotes'][1:6]))
-        for i, q in enumerate(suggest_res['quotes'][1:6]):
-            name = q.get('shortname') or q.get('longname') or q.get('symbol', '')
-            sym = q.get('symbol', '')
-            if name and sym:
-                with suggest_cols[i]:
-                    if st.button(f"🔍 {name}\n({sym})", key=f"sug_{i}"):
-                        st.session_state.search_input = sym
-                        st.rerun()
+    st.write(suggest_res)
 
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
