@@ -233,7 +233,6 @@ st.title("🌍 글로벌 주식 터미널")
 if "search_input" not in st.session_state: st.session_state.search_input = "삼성전자"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
-if "selected_suggest" not in st.session_state: st.session_state.selected_suggest = ""  # ✅ 추가
 
 def apply_vip_search():
     if st.session_state.vip_dropdown != "🔽 주요 종목 선택":
@@ -251,28 +250,11 @@ with col3:
     show_bb = st.toggle("📐 볼린저 밴드", value=False)  # ✅ [추가] 볼린저 밴드 토글
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
-# ✅ [추가] 연관 종목 추천
-if search_term.strip():
-    english_suggest, _ = translate_to_english(search_term.strip())
-    suggest_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={english_suggest}")
-    if suggest_res and suggest_res.get('quotes') and len(suggest_res['quotes']) > 1:
-        suggest_cols = st.columns(len(suggest_res['quotes'][1:6]))
-        for i, q in enumerate(suggest_res['quotes'][1:6]):
-            name = q.get('shortname') or q.get('longname') or q.get('symbol', '')
-            sym = q.get('symbol', '')
-            exch = q.get('exchDisp', '')
-            if name and sym:
-                with suggest_cols[i]:
-                  if st.button(f"🔍 {name}\n({sym} · {exch})", key=f"sug_{i}"):
-                      st.session_state.selected_suggest = sym
-                      st.rerun()
-                      
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
 
-original_name = st.session_state.selected_suggest if st.session_state.selected_suggest else search_term.strip()
-st.session_state.selected_suggest = ""
+original_name = search_term.strip()
 symbol = ""
 official_name = original_name
 
