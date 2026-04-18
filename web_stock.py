@@ -262,10 +262,10 @@ if search_term.strip():
             exch = q.get('exchDisp', '')
             if name and sym:
                 with suggest_cols[i]:
-                    if st.button(f"🔍 {name}\n({sym} · {exch})", key=f"sug_{i}"):
-                        st.session_state.search_input = sym
-                        st.rerun()
-                        
+                   if st.button(f"🔍 {name}\n({sym} · {exch})", key=f"sug_{i}"):
+                       st.session_state["search_input"] = sym
+                       st.rerun()
+
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
