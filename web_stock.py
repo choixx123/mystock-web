@@ -232,7 +232,8 @@ st.title("🌍 글로벌 주식 터미널")
 
 if "search_input" not in st.session_state: st.session_state.search_input = "삼성전자"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
-if "dark_mode" not in st.session_state: st.session_state.dark_mode = False  # ✅ 추가
+if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
+if "selected_suggest" not in st.session_state: st.session_state.selected_suggest = ""  # ✅ 추가
 
 def apply_vip_search():
     if st.session_state.vip_dropdown != "🔽 주요 종목 선택":
@@ -263,15 +264,15 @@ if search_term.strip():
             if name and sym:
                 with suggest_cols[i]:
                   if st.button(f"🔍 {name}\n({sym} · {exch})", key=f"sug_{i}"):
-                      st.query_params["q"] = sym
-                      st.session_state.search_input = sym
+                      st.session_state.selected_suggest = sym
                       st.rerun()
-
+                      
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
 
-original_name = search_term.strip()
+original_name = st.session_state.selected_suggest if st.session_state.selected_suggest else search_term.strip()
+st.session_state.selected_suggest = ""
 symbol = ""
 official_name = original_name
 
