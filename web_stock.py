@@ -254,8 +254,18 @@ with col3:
 if search_term.strip():
     english_suggest, _ = translate_to_english(search_term.strip())
     suggest_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={english_suggest}")
-    st.write(suggest_res)
-
+    if suggest_res and suggest_res.get('quotes') and len(suggest_res['quotes']) > 1:
+        suggest_cols = st.columns(len(suggest_res['quotes'][1:6]))
+        for i, q in enumerate(suggest_res['quotes'][1:6]):
+            name = q.get('shortname') or q.get('longname') or q.get('symbol', '')
+            sym = q.get('symbol', '')
+            exch = q.get('exchDisp', '')
+            if name and sym:
+                with suggest_cols[i]:
+                    if st.button(f"🔍 {name}\n({sym} · {exch})", key=f"sug_{i}"):
+                        st.session_state.search_input = sym
+                        st.rerun()
+                        
 # ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
