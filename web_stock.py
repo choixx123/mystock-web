@@ -8,14 +8,15 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import urllib.parse
-from bs4 import BeautifulSoup  # 🌟 네이버 크롤링을 위한 필수 라이브러리 추가됨
+from bs4 import BeautifulSoup
+from collections import defaultdict
 
-# 한국 표준시(KST) 설정
-KST = timezone(timedelta(hours=9)) 
+KST = timezone(timedelta(hours=9))
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
 if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
+
 if st.session_state.dark_mode:
     st.markdown("""
         <style>
@@ -51,31 +52,31 @@ vip_dict = {
 # ==========================================
 # 🚀 [엔진 1] 야후 파이낸스 & API 로직
 # ==========================================
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=10, show_spinner=False)
 def get_cached_json(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200: 
+        if res.status_code == 200:
             return res.json()
-    except Exception: 
+    except Exception:
         return None
     return None
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def translate_to_english(text):
-    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()): 
-        return text, True 
+    if re.match(r'^[a-zA-Z0-9\.\-\s]+$', text.strip()):
+        return text, True
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={text}"
         res = requests.get(url, timeout=3)
-        if res.status_code == 200: 
+        if res.status_code == 200:
             return res.json()[0][0][0], True
-    except: 
+    except:
         pass
-    return text, False 
+    return text, False
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=10, show_spinner=False)
 def get_quick_quote(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
     res = get_cached_json(url)
@@ -90,28 +91,26 @@ def get_quick_quote(symbol):
     return 0, 0
 
 # ==========================================
-# 🇰🇷 [엔진 2] 네이버 증권 실시간 엔진 (한국주식 전용)
+# 🇰🇷 [엔진 2] 네이버 증권 실시간 엔진
 # ==========================================
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=10, show_spinner=False)
 def get_naver_stock_data(code):
     url = f"https://finance.naver.com/item/sise.naver?code={code}"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
     try:
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-
         price_str = re.sub(r'[^\d]', '', soup.select_one('#_nowVal').text)
         rate_str = re.sub(r'[^\d\.\-]', '', soup.select_one('#_rate').text)
         vol_str = re.sub(r'[^\d]', '', soup.select_one('#_quant').text)
         amount_str = re.sub(r'[^\d]', '', soup.select_one('#_amount').text)
-
         return {
             "price": float(price_str),
             "rate": float(rate_str),
             "volume": int(vol_str),
             "amount": int(amount_str) * 1000000
         }
-    except Exception as e:
+    except Exception:
         return None
 
 # ==========================================
@@ -134,7 +133,7 @@ def get_cached_news(original_name):
                 source = source_elem.text if source_elem is not None else "구글 뉴스"
                 if " - " in title: title = " - ".join(title.split(" - ")[:-1])
                 news_list.append({"title": title, "link": link, "source": source})
-    except Exception: 
+    except Exception:
         pass
     return news_list, clean_search_term
 
@@ -160,7 +159,6 @@ def calc_macd(prices):
     for e12, e26 in zip(ema12, ema26):
         if e12 is not None and e26 is not None: macd.append(e12 - e26)
         else: macd.append(None)
-            
     valid_idx = [i for i, m in enumerate(macd) if m is not None]
     signal = [None] * len(prices)
     if valid_idx and len(valid_idx) >= 9:
@@ -178,10 +176,8 @@ def calc_rsi(prices, period=14):
         change = prices[i] - prices[i-1]
         gains.append(change if change > 0 else 0)
         losses.append(-change if change < 0 else 0)
-
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
-
     for i in range(period, len(prices)):
         if i > period:
             change = prices[i] - prices[i-1]
@@ -189,14 +185,12 @@ def calc_rsi(prices, period=14):
             loss = -change if change < 0 else 0
             avg_gain = (avg_gain * (period - 1) + gain) / period
             avg_loss = (avg_loss * (period - 1) + loss) / period
-            
         if avg_loss == 0: rsi[i] = 100
         else:
             rs = avg_gain / avg_loss
             rsi[i] = 100 - (100 / (1 + rs))
     return rsi
 
-# ✅ [추가] 볼린저 밴드 계산 함수
 def calc_bb(prices, window=20, num_std=2):
     upper, mid, lower = [], [], []
     for i in range(len(prices)):
@@ -210,6 +204,23 @@ def calc_bb(prices, window=20, num_std=2):
             upper.append(m + num_std * std)
             lower.append(m - num_std * std)
     return upper, mid, lower
+
+# ✅ [추가] 월봉 → 연봉 집계
+def aggregate_to_yearly(clean_data):
+    yearly = defaultdict(list)
+    for row in clean_data:
+        yearly[row[0].year].append(row)
+    result = []
+    for year in sorted(yearly.keys()):
+        rows = sorted(yearly[year], key=lambda x: x[0])
+        if not rows: continue
+        o = rows[0][1]
+        h = max(r[2] for r in rows)
+        l = min(r[3] for r in rows)
+        c = rows[-1][4]
+        v = sum(r[5] for r in rows)
+        result.append((rows[0][0], o, h, l, c, v))
+    return result
 
 def format_abbrev(val, sym):
     if val == 0: return f"{sym}0"
@@ -226,18 +237,17 @@ with st.sidebar:
     st.header("⚡ 라이트 터미널")
     st.write("불필요한 데이터 통신을 줄여 실시간 반응 속도를 극대화한 버전입니다.")
     st.markdown("---")
-    st.caption("CEO 터미널 V13.8 (볼린저밴드 + 프로그레스바 + 봉 단위 패치)")
+    st.caption("CEO 터미널 V13.9 (라이브모드 차트 포함 + 연봉/월봉/축레이블 패치)")
 
 st.title("🌍 글로벌 주식 터미널")
 
 if "search_input" not in st.session_state: st.session_state.search_input = "삼성전자"
 if "vip_dropdown" not in st.session_state: st.session_state.vip_dropdown = "🔽 주요 종목 선택"
-if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
 
 def apply_vip_search():
     if st.session_state.vip_dropdown != "🔽 주요 종목 선택":
         st.session_state.search_input = st.session_state.vip_dropdown
-        st.session_state.vip_dropdown = "🔽 주요 종목 선택" 
+        st.session_state.vip_dropdown = "🔽 주요 종목 선택"
 
 col1, col2, col3 = st.columns([4, 2, 2])
 with col1: search_term = st.text_input("🔍 직접 검색 (종목명/티커 입력 후 Enter)", key="search_input")
@@ -245,12 +255,11 @@ with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + lis
 with col3:
     st.write("")
     dark_mode = st.toggle("🌙 다크모드", key="dark_mode")
-    live_mode = st.toggle("🔴 라이브 모드 (5초 갱신)")
+    live_mode = st.toggle("🔴 라이브 모드 (10초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
-    show_bb = st.toggle("📐 볼린저 밴드", value=False)  # ✅ [추가] 볼린저 밴드 토글
+    show_bb = st.toggle("📐 볼린저 밴드", value=False)
     bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
 
-# ✅ [변경] 조회기간: 분봉/일봉/월봉/연봉/5년/10년
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
 
@@ -270,10 +279,12 @@ else:
 
 if not symbol:
     st.markdown(f'<div class="delisted-alert">🚨 상장폐지 또는 검색 불가 ({original_name})<br><span style="font-size: 16px; font-weight: normal;">야후 파이낸스에서 완전히 삭제되었거나 종목명을 잘못 입력했습니다.</span></div>', unsafe_allow_html=True)
-    st.stop() 
+    st.stop()
 
-@st.fragment(run_every=5 if live_mode else None)
-def render_live_metrics(target_symbol, target_name):
+# ✅ [변경] 라이브 모드 10초 + 차트/뉴스까지 전부 포함
+@st.fragment(run_every=10 if live_mode else None)
+def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _bottom_indicator):
+
     m1, m2, m3, m4 = st.columns(4)
     indices = [("나스닥", "^IXIC", ""), ("S&P 500", "^GSPC", ""), ("코스피", "^KS11", ""), ("원/달러", "USDKRW=X", "₩")]
     for col, (name, sym, sign) in zip([m1, m2, m3, m4], indices):
@@ -284,18 +295,17 @@ def render_live_metrics(target_symbol, target_name):
     st.markdown("---")
 
     res_1y_data = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{target_symbol}?range=1y&interval=1d")
-    
-    if not res_1y_data or 'chart' not in res_1y_data or not res_1y_data['chart']['result']: 
+    if not res_1y_data or 'chart' not in res_1y_data or not res_1y_data['chart']['result']:
         st.markdown(f'<div class="delisted-alert">🚨 상장폐지 또는 검색 불가 ({target_symbol})</div>', unsafe_allow_html=True)
-        return False
-        
+        return
+
     result_1y = res_1y_data['chart']['result'][0]
     meta = result_1y['meta']
-    
+
     last_trade_ts = meta.get('regularMarketTime', 0)
     if last_trade_ts == 0 and result_1y.get('timestamp'):
         last_trade_ts = result_1y['timestamp'][-1]
-        
+
     is_dead = False
     if last_trade_ts > 0:
         last_trade_date = datetime.fromtimestamp(last_trade_ts, KST)
@@ -306,22 +316,22 @@ def render_live_metrics(target_symbol, target_name):
 
     market_state = meta.get('marketState', 'REGULAR')
     if is_dead: closed_html = '<span class="badge" style="background-color: #000000;">💀 영구 휴장(상폐)</span>'
-    elif market_state == 'REGULAR': closed_html = '' 
+    elif market_state == 'REGULAR': closed_html = ''
     elif market_state == 'PRE': closed_html = '<span class="badge" style="background-color: #ff9900;">🌅 프리마켓</span>'
     elif market_state in ['POST', 'POSTPOST']: closed_html = '<span class="badge" style="background-color: #9933cc;">🌃 애프터마켓</span>'
     else: closed_html = '<span class="closed-badge">💤 장 휴장일</span>'
-    
+
     quotes_1y = result_1y['indicators']['quote'][0]
     valid_closes = [p for p in quotes_1y.get('close', []) if p is not None]
     valid_highs = [h for h in quotes_1y.get('high', []) if h is not None]
     valid_lows = [l for l in quotes_1y.get('low', []) if l is not None]
-    
+
     price = meta.get('regularMarketPrice', valid_closes[-1] if valid_closes else 0)
     prev_close = meta.get('previousClose', valid_closes[-2] if len(valid_closes) >= 2 else price)
     today_volume = meta.get('regularMarketVolume', 0)
     day_change_pct = ((price - prev_close) / prev_close) * 100 if prev_close else 0
-    currency = meta.get('currency', 'USD') 
-    
+    currency = meta.get('currency', 'USD')
+
     naver_amount = None
     is_kr_stock = target_symbol.endswith(".KS") or target_symbol.endswith(".KQ")
     if is_kr_stock:
@@ -341,24 +351,21 @@ def render_live_metrics(target_symbol, target_name):
     highlow_str = f"{c_sym_st}{int(high_52):,} / {c_sym_st}{int(low_52):,}" if currency in ["KRW", "JPY"] else f"{c_sym_st}{high_52:,.2f} / {c_sym_st}{low_52:,.2f}"
 
     st.markdown(f"<h3>{target_name} ({target_symbol}) {closed_html}</h3>", unsafe_allow_html=True)
-    
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4) 
+
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1: st.metric(label=f"💰 {'마지막 가격' if is_dead else '현재가'}", value=price_str, delta=f"{day_change_pct:+.2f}%")
-    
-    with kpi2: 
+    with kpi2:
         if is_kr_stock and naver_amount is not None:
             st.metric(label="💸 거래대금", value=format_abbrev(naver_amount, "₩"))
         elif currency != "KRW":
             ex_rate_res = get_cached_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{currency}KRW=X")
-            if ex_rate_res and ex_rate_res.get('chart') and ex_rate_res['chart'].get('result'): 
+            if ex_rate_res and ex_rate_res.get('chart') and ex_rate_res['chart'].get('result'):
                 curr_rate = ex_rate_res['chart']['result'][0]['meta']['regularMarketPrice']
                 st.metric(label="🇰🇷 원화 환산가", value=f"약 ₩{int(price * curr_rate):,}")
             else: st.empty()
-        else: st.empty() 
-        
+        else: st.empty()
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
-    
-    with kpi4: 
+    with kpi4:
         try:
             if today_volume is None or str(today_volume).strip() == "" or str(today_volume) == "nan":
                 volume_str = "데이터 없음"
@@ -366,10 +373,9 @@ def render_live_metrics(target_symbol, target_name):
                 volume_str = format_abbrev(today_volume, "")
         except Exception:
             volume_str = "에러"
-            
         st.metric(label="📊 거래량", value=volume_str)
 
-    # ✅ [추가] 52주 프로그레스 바
+    # 52주 프로그레스 바
     if high_52 > low_52:
         progress_pct = int(max(0, min(100, (price - low_52) / (high_52 - low_52) * 100)))
         bar_color = "#ff4b4b" if progress_pct >= 80 else "#ff9900" if progress_pct >= 50 else "#00b4d8"
@@ -383,25 +389,36 @@ def render_live_metrics(target_symbol, target_name):
             </div>
         """, unsafe_allow_html=True)
 
-    if is_dead: return False
-    return True
+    if is_dead:
+        return
 
-is_valid_stock = render_live_metrics(symbol, official_name)
-
-if is_valid_stock:
-    st.write("") 
+    st.write("")
     st.markdown("---")
 
-    # ✅ [변경] 분봉/일봉/월봉/연봉/5년/10년 에 맞는 range & interval
-    fetch_range_map = {"분봉": "1d", "일봉": "1y", "월봉": "5y", "연봉": "max", "5년": "5y", "10년": "max"}
-    interval_map    = {"분봉": "5m", "일봉": "1d", "월봉": "1mo", "연봉": "3mo", "5년": "1wk", "10년": "1wk"}
+    # ✅ [변경] fetch range/interval - 월봉 max, 연봉 월봉데이터로 집계
+    fetch_range_map = {
+        "분봉": "1d",
+        "일봉": "2y",
+        "월봉": "max",
+        "연봉": "max",
+        "5년": "10y",
+        "10년": "max"
+    }
+    interval_map = {
+        "분봉": "5m",
+        "일봉": "1d",
+        "월봉": "1mo",
+        "연봉": "1mo",
+        "5년": "1wk",
+        "10년": "1wk"
+    }
 
-    chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={fetch_range_map[timeframe]}&interval={interval_map[timeframe]}"
+    chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{target_symbol}?range={fetch_range_map[_timeframe]}&interval={interval_map[_timeframe]}"
     chart_res_json = get_cached_json(chart_url)
 
     if chart_res_json and chart_res_json['chart']['result']:
         chart_res = chart_res_json['chart']['result'][0]
-        
+
         chart_currency = chart_res['meta'].get('currency', 'USD')
         c_sym_plot = "₩" if chart_currency == "KRW" else "$" if chart_currency == "USD" else "€" if chart_currency == "EUR" else "¥" if chart_currency == "JPY" else f"{chart_currency} "
 
@@ -414,9 +431,9 @@ if is_valid_stock:
         has_split = False
         if 'events' in chart_res and 'splits' in chart_res['events']:
             has_split = True
-            
+
         split_html = '<span class="badge" style="background-color: #ff9900;">✂️ 액면분할 됨</span>' if has_split else ''
-        
+
         dt_objects = [datetime.fromtimestamp(ts, KST) for ts in chart_res.get('timestamp', [])]
         quote = chart_res['indicators']['quote'][0]
         opens = quote.get('open', [])
@@ -424,7 +441,7 @@ if is_valid_stock:
         lows = quote.get('low', [])
         closes = quote.get('close', [])
         volumes = quote.get('volume', [])
-        
+
         clean_data = []
         for i in range(len(dt_objects)):
             if i < len(closes) and closes[i] is not None:
@@ -434,20 +451,23 @@ if is_valid_stock:
                 l = lows[i] if i < len(lows) else closes[i]
                 clean_data.append((dt_objects[i], o, h, l, closes[i], v))
 
+        # ✅ [추가] 연봉이면 월봉 데이터를 연봉으로 집계
+        if _timeframe == "연봉":
+            clean_data = aggregate_to_yearly(clean_data)
+
         full_prices = [row[4] for row in clean_data]
         ma20_full = calc_ma(full_prices, 20)
         ma60_full = calc_ma(full_prices, 60)
-        rsi_full = calc_rsi(full_prices, 14) 
+        rsi_full = calc_rsi(full_prices, 14)
         macd_full, macd_signal_full = calc_macd(full_prices)
 
         f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes = [], [], [], [], [], []
         f_ma20, f_ma60, f_rsi, f_macd, f_signal = [], [], [], [], []
 
-        # ✅ [변경] "1일" → "분봉"
-        if timeframe == "분봉" and len(clean_data) > 0:
+        if _timeframe == "분봉" and len(clean_data) > 0:
             session_start_idx = 0
             for i in range(len(clean_data) - 1, 0, -1):
-                if (clean_data[i][0] - clean_data[i-1][0]).total_seconds() > 4 * 3600: 
+                if (clean_data[i][0] - clean_data[i-1][0]).total_seconds() > 4 * 3600:
                     session_start_idx = i
                     break
             for i in range(session_start_idx, len(clean_data)):
@@ -462,11 +482,11 @@ if is_valid_stock:
                 f_rsi.append(rsi_full[i])
                 f_macd.append(macd_full[i])
                 f_signal.append(macd_signal_full[i])
-                
-        # ✅ [변경] "1일" → "분봉"
-        elif timeframe != "분봉":
-            # ✅ [변경] cutoff_days 새 timeframe에 맞게 변경
-            cutoff_days = {"일봉": 365, "월봉": 365*5, "연봉": 365*30, "5년": 365*5, "10년": 365*10}.get(timeframe, 365)
+
+        elif _timeframe != "분봉":
+            cutoff_days = {
+                "일봉": 365, "월봉": 365*100, "연봉": 365*100, "5년": 365*5, "10년": 365*10
+            }.get(_timeframe, 365)
             cutoff_date = datetime.now(KST) - timedelta(days=cutoff_days)
             for i in range(len(clean_data)):
                 if clean_data[i][0] >= cutoff_date:
@@ -482,15 +502,24 @@ if is_valid_stock:
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
 
-        # ✅ [추가] 볼린저 밴드 계산 (이미 필터링된 f_closes 사용, API 추가 없음)
-        if show_bb and len(f_closes) >= 20:
+        # ✅ [추가] 분봉 장마감 안내
+        if _timeframe == "분봉" and f_dates:
+            last_dt = f_dates[-1]
+            today_kst = datetime.now(KST).date()
+            if last_dt.date() < today_kst:
+                st.info(f"💤 현재 장 휴장 중 | 마지막 거래일 ({last_dt.strftime('%Y-%m-%d')}) 데이터 표시 중")
+
+        if _show_bb and len(f_closes) >= 20:
             f_bb_upper, f_bb_mid, f_bb_lower = calc_bb(f_closes)
         else:
             f_bb_upper = f_bb_mid = f_bb_lower = [None] * len(f_closes)
 
-        # ✅ [변경] 분봉만 시:분 표시, 나머지는 날짜만
-        f_dates_str = [d.strftime('%Y-%m-%d %H:%M') + '\u200b' if timeframe == '분봉' else d.strftime('%Y-%m-%d') + '\u200b' for d in f_dates]
-        
+        f_dates_str = [
+            d.strftime('%Y-%m-%d %H:%M') + '\u200b' if _timeframe == '분봉'
+            else d.strftime('%Y-%m-%d') + '\u200b'
+            for d in f_dates
+        ]
+
         formatted_tvals = []
         for c, v in zip(f_closes, f_volumes):
             orig_str = format_abbrev(c * v, c_sym_plot)
@@ -501,18 +530,18 @@ if is_valid_stock:
                 formatted_tvals.append(orig_str)
 
         fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True, 
-            vertical_spacing=0.03, row_heights=[0.75, 0.25], 
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.03, row_heights=[0.75, 0.25],
             specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
         )
-        
-        is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
+
+        is_kr = target_symbol.endswith(".KS") or target_symbol.endswith(".KQ")
         up_color = '#ff4b4b' if is_kr else '#00cc96'
         down_color = '#00b4d8' if is_kr else '#ff4b4b'
 
-        if use_candle and len(f_dates_str) > 0:
+        if _use_candle and len(f_dates_str) > 0:
             fig.add_trace(go.Candlestick(
-                x=f_dates_str, open=f_opens, high=f_highs, low=f_lows, close=f_closes, 
+                x=f_dates_str, open=f_opens, high=f_highs, low=f_lows, close=f_closes,
                 increasing_line_color=up_color, decreasing_line_color=down_color, name='캔들'
             ), row=1, col=1, secondary_y=False)
         elif len(f_dates_str) > 0:
@@ -520,13 +549,11 @@ if is_valid_stock:
                 x=f_dates_str, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)
             ), row=1, col=1, secondary_y=False)
 
-        # ✅ [변경] MA는 분봉/일봉/월봉/연봉에서 표시
-        if timeframe in ["분봉", "일봉", "월봉", "연봉"] and len(f_dates_str) > 0:
+        if _timeframe in ["분봉", "일봉", "월봉", "연봉"] and len(f_dates_str) > 0:
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
 
-        # ✅ [추가] 볼린저 밴드 트레이스
-        if show_bb and len(f_dates_str) > 0 and any(v is not None for v in f_bb_upper):
+        if _show_bb and len(f_dates_str) > 0 and any(v is not None for v in f_bb_upper):
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_upper, mode='lines', name='BB 상단', line=dict(color='rgba(0,180,216,0.4)', width=1)), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_lower, mode='lines', name='BB 하단', line=dict(color='rgba(0,180,216,0.4)', width=1), fill='tonexty', fillcolor='rgba(0,180,216,0.05)'), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_mid, mode='lines', name='BB 중심', line=dict(color='rgba(0,180,216,0.6)', width=1, dash='dot')), row=1, col=1)
@@ -542,8 +569,8 @@ if is_valid_stock:
                 customdata=formatted_tvals,
                 hovertemplate="%{y:,.0f}<br><b>거래대금:</b> %{customdata}<extra></extra>"
             ), row=1, col=1, secondary_y=True)
-            
-            if bottom_indicator == "RSI":
+
+            if _bottom_indicator == "RSI":
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_rsi, mode='lines', name='RSI', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
                 fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1)
@@ -551,7 +578,6 @@ if is_valid_stock:
             else:
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_macd, mode='lines', name='MACD', line=dict(color='#00b4d8', width=1.5)), row=2, col=1)
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_signal, mode='lines', name='Signal', line=dict(color='#ff9900', width=1.5)), row=2, col=1)
-                
                 macd_hist = []
                 hist_colors = []
                 for m, s in zip(f_macd, f_signal):
@@ -561,34 +587,42 @@ if is_valid_stock:
                     else:
                         macd_hist.append(0)
                         hist_colors.append('#00b4d8')
-                        
                 fig.add_trace(go.Bar(x=f_dates_str, y=macd_hist, marker_color=hist_colors, name='Histogram'), row=2, col=1)
 
-        st.markdown(f"<h4>📈 {official_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
-        
+        st.markdown(f"<h4>📈 {target_name} 차트 & 보조지표 {split_html}</h4>", unsafe_allow_html=True)
+
         fig.update_layout(
-             hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0), xaxis_rangeslider_visible=False,
-             template="plotly_dark" if dark_mode else "plotly"
-)
-        
+            hovermode="x unified", height=700, margin=dict(l=0, r=0, t=20, b=0),
+            xaxis_rangeslider_visible=False,
+            template="plotly_dark" if dark_mode else "plotly"
+        )
+
         fig.update_xaxes(type='category', nticks=15, row=1, col=1)
         fig.update_xaxes(type='category', nticks=15, row=2, col=1)
-        
+
         max_vol = max(f_volumes) if f_volumes else 0
         fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True, fixedrange=True)
-        
-        st.plotly_chart(fig, use_container_width=True)  
 
-st.markdown("---")
-st.markdown(f"### 📰 {original_name} 최신 뉴스")
-news_list, clean_search_term = get_cached_news(original_name)
-if news_list:
-    for news in news_list:
-        st.markdown(f"""
-            <div class="news-card">
-                <a class="news-title" href="{news['link']}" target="_blank">📰 {news['title']}</a>
-                <div style="font-size: 13px; color: #666; margin-top: 5px;">🏢 출처: {news['source']}</div>
-            </div>
-        """, unsafe_allow_html=True)
-else:
-    st.info("💡 뉴스를 불러올 수 없습니다.")
+        # ✅ [추가] 축 레이블
+        fig.update_yaxes(title_text="📈 주가", title_font=dict(size=11, color="#888888"), row=1, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="📊 거래량", title_font=dict(size=11, color="#888888"), row=1, col=1, secondary_y=True)
+        fig.update_yaxes(title_text=f"📉 {_bottom_indicator}", title_font=dict(size=11, color="#888888"), row=2, col=1)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown(f"### 📰 {original_name} 최신 뉴스")
+    news_list, _ = get_cached_news(original_name)
+    if news_list:
+        for news in news_list:
+            st.markdown(f"""
+                <div class="news-card">
+                    <a class="news-title" href="{news['link']}" target="_blank">📰 {news['title']}</a>
+                    <div style="font-size: 13px; color: #666; margin-top: 5px;">🏢 출처: {news['source']}</div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("💡 뉴스를 불러올 수 없습니다.")
+
+
+render_all(symbol, official_name, timeframe, use_candle, show_bb, bottom_indicator)
