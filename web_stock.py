@@ -569,6 +569,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_mid, mode='lines', name='BB 중심', line=dict(color='rgba(0,180,216,0.6)', width=1, dash='dot')), row=1, col=1)
 
         vol_colors = []
+        f_trading_values = [c * v for c, v in zip(f_closes, f_volumes)]
         for i in range(len(f_closes)):
             if i > 0 and f_closes[i] < f_closes[i-1]: vol_colors.append(down_color)
             else: vol_colors.append(up_color)
