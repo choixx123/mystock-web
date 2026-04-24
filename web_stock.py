@@ -415,7 +415,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
         "10년": "max"
     }
     interval_map = {
-        "분봉": "5m",
+        "분봉": "3m",
         "일봉": "1d",
         "월봉": "1mo",
         "연봉": "1mo",
@@ -466,13 +466,16 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             clean_data = aggregate_to_yearly(clean_data)
 
         full_prices = [row[4] for row in clean_data]
+        ma3_full = calc_ma(full_prices, 3)
         ma20_full = calc_ma(full_prices, 20)
         ma60_full = calc_ma(full_prices, 60)
+        ma120_full = calc_ma(full_prices, 120)
+        ma480_full = calc_ma(full_prices, 480)
         rsi_full = calc_rsi(full_prices, 14)
         macd_full, macd_signal_full = calc_macd(full_prices)
 
         f_dates, f_opens, f_highs, f_lows, f_closes, f_volumes = [], [], [], [], [], []
-        f_ma20, f_ma60, f_rsi, f_macd, f_signal = [], [], [], [], []
+        f_ma3, f_ma20, f_ma60, f_ma120, f_ma480, f_rsi, f_macd, f_signal = [], [], [], [], [], [], [], []
 
         if _timeframe == "분봉" and len(clean_data) > 0:
             session_start_idx = 0
@@ -487,8 +490,11 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
                 f_lows.append(clean_data[i][3])
                 f_closes.append(clean_data[i][4])
                 f_volumes.append(clean_data[i][5])
+                f_ma3.append(ma3_full[i])
                 f_ma20.append(ma20_full[i])
                 f_ma60.append(ma60_full[i])
+                f_ma120.append(ma120_full[i])
+                f_ma480.append(ma480_full[i])
                 f_rsi.append(rsi_full[i])
                 f_macd.append(macd_full[i])
                 f_signal.append(macd_signal_full[i])
@@ -506,8 +512,11 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
                     f_lows.append(clean_data[i][3])
                     f_closes.append(clean_data[i][4])
                     f_volumes.append(clean_data[i][5])
+                    f_ma3.append(ma3_full[i])
                     f_ma20.append(ma20_full[i])
                     f_ma60.append(ma60_full[i])
+                    f_ma120.append(ma120_full[i])
+                    f_ma480.append(ma480_full[i])
                     f_rsi.append(rsi_full[i])
                     f_macd.append(macd_full[i])
                     f_signal.append(macd_signal_full[i])
@@ -559,10 +568,15 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
                 x=f_dates_str, y=f_closes, mode='lines', name='주가', line=dict(color='#00b4d8', width=3)
             ), row=1, col=1, secondary_y=False)
 
-        if _timeframe in ["분봉", "일봉", "월봉", "연봉"] and len(f_dates_str) > 0:
+        if _timeframe == "분봉" and len(f_dates_str) > 0:
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma3, mode='lines', name='3선', line=dict(color='#ff4b4b', width=1.5)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma120, mode='lines', name='120선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
+        elif _timeframe in ["일봉", "월봉", "연봉", "5년", "10년"] and len(f_dates_str) > 0:
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma3, mode='lines', name='3선', line=dict(color='#ff4b4b', width=1.5)), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma20, mode='lines', name='20선', line=dict(color='#ff9900', width=1.5, dash='dash')), row=1, col=1)
-            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma60, mode='lines', name='60선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
-
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma120, mode='lines', name='120선', line=dict(color='#00cc96', width=1.5, dash='dash')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma480, mode='lines', name='480선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
+ 
         if _show_bb and len(f_dates_str) > 0 and any(v is not None for v in f_bb_upper):
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_upper, mode='lines', name='BB 상단', line=dict(color='rgba(0,180,216,0.4)', width=1)), row=1, col=1)
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_lower, mode='lines', name='BB 하단', line=dict(color='rgba(0,180,216,0.4)', width=1), fill='tonexty', fillcolor='rgba(0,180,216,0.05)'), row=1, col=1)
