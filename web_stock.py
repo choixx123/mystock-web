@@ -575,10 +575,10 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
 
         if len(f_dates_str) > 0:
             fig.add_trace(go.Bar(
-                x=f_dates_str, y=f_volumes, name='거래량', marker_color=vol_colors, opacity=0.3,
+                x=f_dates_str, y=f_trading_values, name='거래대금', marker_color=vol_colors, opacity=0.3,
                 customdata=formatted_tvals,
-                hovertemplate="%{y:,.0f}<br><b>거래대금:</b> %{customdata}<extra></extra>"
-            ), row=1, col=1, secondary_y=True)
+                hovertemplate="<b>거래대금:</b> %{customdata}<extra></extra>"
+             ), row=1, col=1, secondary_y=True)
 
             if _bottom_indicator == "RSI":
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_rsi, mode='lines', name='RSI', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
@@ -610,12 +610,13 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
         fig.update_xaxes(type='category', nticks=15, row=1, col=1)
         fig.update_xaxes(type='category', nticks=15, row=2, col=1)
 
-        max_vol = max(f_volumes) if f_volumes else 0
-        fig.update_yaxes(showgrid=False, range=[0, max_vol * 4 if max_vol > 0 else 100], row=1, col=1, secondary_y=True, fixedrange=True)
+        f_trading_values = [c * v for c, v in zip(f_closes, f_volumes)]
+        max_tv = max(f_trading_values) if f_trading_values else 0
+        fig.update_yaxes(showgrid=False, range=[0, max_tv * 4 if max_tv > 0 else 100], row=1, col=1, secondary_y=True, fixedrange=True)
 
         # ✅ [추가] 축 레이블
         fig.update_yaxes(title_text="📈 주가", title_font=dict(size=11, color="#888888"), row=1, col=1, secondary_y=False)
-        fig.update_yaxes(title_text="📊 거래량", title_font=dict(size=11, color="#888888"), row=1, col=1, secondary_y=True)
+        fig.update_yaxes(title_text="💸 거래대금", title_font=dict(size=11, color="#888888"), row=1, col=1, secondary_y=True)
         fig.update_yaxes(title_text=f"📉 {_bottom_indicator}", title_font=dict(size=11, color="#888888"), row=2, col=1)
 
         st.plotly_chart(fig, use_container_width=True)
