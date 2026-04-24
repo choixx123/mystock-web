@@ -258,7 +258,7 @@ with col3:
     live_mode = st.toggle("🔴 라이브 모드 (10초 갱신)")
     use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
     show_bb = st.toggle("📐 볼린저 밴드", value=False)
-    bottom_indicator = st.radio("하단 지표", ["RSI", "MACD"], horizontal=True, label_visibility="collapsed")
+    bottom_indicator = "MACD"
 
 timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
 st.markdown("---")
@@ -373,13 +373,17 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
     with kpi3: st.metric(label="⚖️ 52주 최고/최저", value=highlow_str)
     with kpi4:
         try:
-            if today_volume is None or str(today_volume).strip() == "" or str(today_volume) == "nan":
-                volume_str = "데이터 없음"
+            if is_kr_stock:
+                if today_volume is None or str(today_volume).strip() == "" or str(today_volume) == "nan":
+                    volume_str = "데이터 없음"
+                else:
+                    volume_str = format_abbrev(today_volume, "")
+                st.metric(label="📊 거래량", value=volume_str)
             else:
-                volume_str = format_abbrev(today_volume, "")
+                trading_value = price * today_volume if today_volume else 0
+                st.metric(label="💸 거래대금", value=format_abbrev(trading_value, "$" if currency == "USD" else c_sym_st))
         except Exception:
-            volume_str = "에러"
-        st.metric(label="📊 거래량", value=volume_str)
+            st.metric(label="📊 거래량", value="에러")
 
     # 52주 프로그레스 바
     if high_52 > low_52:
