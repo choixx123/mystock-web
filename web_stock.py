@@ -575,18 +575,18 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             else: vol_colors.append(up_color)
 
         if len(f_dates_str) > 0:
-            fig.add_trace(go.Bar(
-                x=f_dates_str, y=f_trading_values, name='거래대금', marker_color=vol_colors, opacity=0.3,
-                customdata=formatted_tvals,
-                hovertemplate="<b>거래대금:</b> %{customdata}<extra></extra>"
-             ), row=1, col=1, secondary_y=True)
-
-            if _bottom_indicator == "RSI":
+           fig.add_trace(go.Bar(
+               x=f_dates_str, y=f_trading_values, name='거래대금', marker_color=vol_colors, opacity=0.3,
+               customdata=list(zip(formatted_tvals, f_volumes)),
+               hovertemplate="<b>거래대금:</b> %{customdata[0]}<br><b>거래량:</b> %{customdata[1]:,.0f}<extra></extra>"
+            ), row=1, col=1, secondary_y=True)
+           
+        if _bottom_indicator == "RSI":
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_rsi, mode='lines', name='RSI', line=dict(color='#9c27b0', width=1.5)), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
                 fig.add_hline(y=30, line_dash="dot", line_color="blue", row=2, col=1)
                 fig.update_yaxes(range=[0, 100], row=2, col=1)
-            else:
+        else:
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_macd, mode='lines', name='MACD', line=dict(color='#00b4d8', width=1.5)), row=2, col=1)
                 fig.add_trace(go.Scatter(x=f_dates_str, y=f_signal, mode='lines', name='Signal', line=dict(color='#ff9900', width=1.5)), row=2, col=1)
                 macd_hist = []
