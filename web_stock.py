@@ -408,7 +408,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
     # ✅ [변경] fetch range/interval - 월봉 max, 연봉 월봉데이터로 집계
     fetch_range_map = {
         "분봉": "1d",
-        "일봉": "2y",
+        "일봉": "max",
         "월봉": "max",
         "연봉": "max",
         "5년": "10y",
