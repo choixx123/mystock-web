@@ -415,7 +415,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
         "10년": "max"
     }
     interval_map = {
-        "분봉": "3m",
+        "분봉": "5m",
         "일봉": "1d",
         "월봉": "1mo",
         "연봉": "1mo",
