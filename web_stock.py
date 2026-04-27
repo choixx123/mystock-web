@@ -256,11 +256,11 @@ with col3:
     st.write("")
     dark_mode = st.toggle("🌙 다크모드", key="dark_mode")
     live_mode = st.toggle("🔴 라이브 모드 (10초 갱신)")
-    use_candle = st.toggle("🕯️ 캔들 차트 모드", value=True)
+    use_candle = True
     show_bb = st.toggle("📐 볼린저 밴드", value=False)
     bottom_indicator = "MACD"
 
-timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉", "5년", "10년"], horizontal=True, index=1)
+timeframe = st.radio("⏳ 조회 기간 선택", ["분봉", "일봉", "월봉", "연봉"], horizontal=True, index=1)
 st.markdown("---")
 
 original_name = search_term.strip()
@@ -411,16 +411,12 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
         "일봉": "5y",
         "월봉": "max",
         "연봉": "max",
-        "5년": "10y",
-        "10년": "max"
     }
     interval_map = {
         "분봉": "5m",
         "일봉": "1d",
         "월봉": "1mo",
         "연봉": "1mo",
-        "5년": "1wk",
-        "10년": "1wk"
     }
 
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{target_symbol}?range={fetch_range_map[_timeframe]}&interval={interval_map[_timeframe]}"
