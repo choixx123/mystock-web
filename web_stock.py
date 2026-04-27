@@ -15,18 +15,6 @@ KST = timezone(timedelta(hours=9))
 
 st.set_page_config(page_title="CEO 글로벌 터미널", page_icon="🌍", layout="wide")
 
-if "dark_mode" not in st.session_state: st.session_state.dark_mode = False
-
-if st.session_state.dark_mode:
-    st.markdown("""
-        <style>
-        .stApp { background-color: #1a1a2e; color: #e0e0e0; }
-        .stApp * { color: #e0e0e0 !important; }
-        .news-card { background: #16213e !important; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
-        .stMetric { background: #16213e; border-radius: 8px; padding: 8px; }
-        </style>
-    """, unsafe_allow_html=True)
-
 st.markdown("""
     <style>
     .news-card { background: #f8f9fa; border-left: 4px solid #00b4d8; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
@@ -254,7 +242,7 @@ with col1: search_term = st.text_input("🔍 직접 검색 (종목명/티커 입
 with col2: st.selectbox("⭐ 빠른 검색", ["🔽 주요 종목 선택"] + list(vip_dict.keys()), key="vip_dropdown", on_change=apply_vip_search)
 with col3:
     st.write("")
-    dark_mode = st.toggle("🌙 다크모드", key="dark_mode")
+    dark_mode = False
     live_mode = st.toggle("🔴 라이브 모드 (10초 갱신)")
     use_candle = True
     show_bb = st.toggle("📐 볼린저 밴드", value=False)
