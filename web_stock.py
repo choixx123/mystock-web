@@ -220,9 +220,9 @@ def format_abbrev(val, sym):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_financial_data(symbol):
-    url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryDetail%2CdefaultKeyStatistics%2CincomeStatementHistory"
-    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
+        url = f"https://query2.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistory"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code != 200:
             return None
