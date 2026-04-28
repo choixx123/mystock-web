@@ -715,7 +715,6 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             with f2:
                 st.metric("PBR", fin_data["PBR"])
                 st.metric("배당수익률", fin_data["배당수익률"])
-            st.metric("EPS", fin_data["EPS"])
             st.markdown("---")
             st.markdown("**손익계산서 (최근 연간)**")
             st.metric("매출", fin_data["매출"])
