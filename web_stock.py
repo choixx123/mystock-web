@@ -217,27 +217,35 @@ def format_abbrev(val, sym):
     if val >= 1_000_000: return f"{sym}{val/1_000_000:.2f}M"
     if val >= 1_000: return f"{sym}{val/1_000:.2f}K"
     return f"{sym}{val:.2f}"
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_financial_data(symbol):
-    url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryDetail,incomeStatementHistory,defaultKeyStatistics"
-    res = get_cached_json(url)
-    if not res or 'quoteSummary' not in res or not res['quoteSummary']['result']:
+    url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=summaryDetail%2CdefaultKeyStatistics%2CincomeStatementHistory"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        res = requests.get(url, headers=headers, timeout=8)
+        if res.status_code != 200:
+            return None
+        data = res.json()
+        if not data.get('quoteSummary') or not data['quoteSummary'].get('result'):
+            return None
+        result = data['quoteSummary']['result'][0]
+        summary = result.get('summaryDetail', {})
+        key_stats = result.get('defaultKeyStatistics', {})
+        income = result.get('incomeStatementHistory', {}).get('incomeStatementHistory', [])
+        latest = income[0] if income else {}
+        return {
+            "시가총액": summary.get('marketCap', {}).get('fmt', 'N/A'),
+            "PER": summary.get('trailingPE', {}).get('fmt', 'N/A'),
+            "PBR": key_stats.get('priceToBook', {}).get('fmt', 'N/A'),
+            "EPS": key_stats.get('trailingEps', {}).get('fmt', 'N/A'),
+            "배당수익률": summary.get('dividendYield', {}).get('fmt', 'N/A'),
+            "매출": latest.get('totalRevenue', {}).get('fmt', 'N/A'),
+            "영업이익": latest.get('operatingIncome', {}).get('fmt', 'N/A'),
+            "순이익": latest.get('netIncome', {}).get('fmt', 'N/A'),
+        }
+    except Exception:
         return None
-    result = res['quoteSummary']['result'][0]
-    summary = result.get('summaryDetail', {})
-    key_stats = result.get('defaultKeyStatistics', {})
-    income = result.get('incomeStatementHistory', {}).get('incomeStatementHistory', [])
-    latest = income[0] if income else {}
-    return {
-        "시가총액": summary.get('marketCap', {}).get('fmt', 'N/A'),
-        "PER": summary.get('trailingPE', {}).get('fmt', 'N/A'),
-        "PBR": key_stats.get('priceToBook', {}).get('fmt', 'N/A'),
-        "EPS": key_stats.get('trailingEps', {}).get('fmt', 'N/A'),
-        "배당수익률": summary.get('dividendYield', {}).get('fmt', 'N/A'),
-        "매출": latest.get('totalRevenue', {}).get('fmt', 'N/A'),
-        "영업이익": latest.get('operatingIncome', {}).get('fmt', 'N/A'),
-        "순이익": latest.get('netIncome', {}).get('fmt', 'N/A'),
-    }
 
 # ==========================================
 # 🖥️ UI 및 메인 실행부
