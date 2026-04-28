@@ -707,10 +707,11 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
         fin_data = get_financial_data(target_symbol)
         if fin_data:
             st.markdown("**기본 정보**")
+            st.metric("시가총액", fin_data["시가총액"])
             f1, f2 = st.columns(2)
             with f1:
-                st.metric("시가총액", fin_data["시가총액"])
                 st.metric("PER", fin_data["PER"])
+                st.metric("EPS", fin_data["EPS"])
             with f2:
                 st.metric("PBR", fin_data["PBR"])
                 st.metric("배당수익률", fin_data["배당수익률"])
