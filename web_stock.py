@@ -221,29 +221,65 @@ def format_abbrev(val, sym):
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_financial_data(symbol):
     try:
-        url = f"https://query2.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=summaryDetail,defaultKeyStatistics,incomeStatementHistory"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code != 200:
+        is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
+        if is_kr:
+            code = symbol.split('.')[0]
+            url = f"https://finance.naver.com/item/main.naver?code={code}"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+            res = requests.get(url, headers=headers, timeout=8)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            result = {}
+            # 시가총액
+            try:
+                market_cap = soup.select_one('em#_market_sum')
+                result['시가총액'] = market_cap.text.strip() + '억원' if market_cap else 'N/A'
+            except: result['시가총액'] = 'N/A'
+            # PER
+            try:
+                per = soup.select_one('em#_per')
+                result['PER'] = per.text.strip() if per else 'N/A'
+            except: result['PER'] = 'N/A'
+            # PBR
+            try:
+                pbr = soup.select_one('em#_pbr')
+                result['PBR'] = pbr.text.strip() if pbr else 'N/A'
+            except: result['PBR'] = 'N/A'
+            # EPS
+            try:
+                eps = soup.select_one('em#_eps')
+                result['EPS'] = eps.text.strip() if eps else 'N/A'
+            except: result['EPS'] = 'N/A'
+            # 배당수익률
+            try:
+                dps = soup.select_one('em#_dvr')
+                result['배당수익률'] = dps.text.strip() + '%' if dps else 'N/A'
+            except: result['배당수익률'] = 'N/A'
+            # 매출/영업이익/순이익 (재무제표 테이블)
+            try:
+                tables = soup.select('table.tb_type1')
+                fin_table = None
+                for t in tables:
+                    if '매출액' in t.text:
+                        fin_table = t
+                        break
+                if fin_table:
+                    rows = fin_table.select('tr')
+                    for row in rows:
+                        th = row.select_one('th')
+                        tds = row.select('td')
+                        if th and tds:
+                            label = th.text.strip()
+                            val = tds[0].text.strip() if tds else 'N/A'
+                            if '매출액' in label: result['매출'] = val + '억원'
+                            elif '영업이익' in label: result['영업이익'] = val + '억원'
+                            elif '당기순이익' in label: result['순이익'] = val + '억원'
+            except: pass
+            result.setdefault('매출', 'N/A')
+            result.setdefault('영업이익', 'N/A')
+            result.setdefault('순이익', 'N/A')
+            return result
+        else:
             return None
-        data = res.json()
-        if not data.get('quoteSummary') or not data['quoteSummary'].get('result'):
-            return None
-        result = data['quoteSummary']['result'][0]
-        summary = result.get('summaryDetail', {})
-        key_stats = result.get('defaultKeyStatistics', {})
-        income = result.get('incomeStatementHistory', {}).get('incomeStatementHistory', [])
-        latest = income[0] if income else {}
-        return {
-            "시가총액": summary.get('marketCap', {}).get('fmt', 'N/A'),
-            "PER": summary.get('trailingPE', {}).get('fmt', 'N/A'),
-            "PBR": key_stats.get('priceToBook', {}).get('fmt', 'N/A'),
-            "EPS": key_stats.get('trailingEps', {}).get('fmt', 'N/A'),
-            "배당수익률": summary.get('dividendYield', {}).get('fmt', 'N/A'),
-            "매출": latest.get('totalRevenue', {}).get('fmt', 'N/A'),
-            "영업이익": latest.get('operatingIncome', {}).get('fmt', 'N/A'),
-            "순이익": latest.get('netIncome', {}).get('fmt', 'N/A'),
-        }
     except Exception:
         return None
 
