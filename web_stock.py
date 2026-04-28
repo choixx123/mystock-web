@@ -717,9 +717,10 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
                 st.metric("배당수익률", fin_data["배당수익률"])
             st.markdown("---")
             st.markdown("**손익계산서 (최근 연간)**")
-            st.metric("매출", fin_data["매출"])
-            st.metric("영업이익", fin_data["영업이익"])
-            st.metric("순이익", fin_data["순이익"])
+            f3, f4, f5 = st.columns(3)
+            with f3: st.metric("매출", fin_data["매출"])
+            with f4: st.metric("영업이익", fin_data["영업이익"])
+            with f5: st.metric("순이익", fin_data["순이익"])
         else:
             st.info("💡 재무 데이터를 불러올 수 없습니다.")
 
