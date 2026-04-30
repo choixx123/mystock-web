@@ -271,9 +271,16 @@ def get_financial_data(symbol):
                             try:
                                 val_now = float(val_now_str)
                                 val_prev = float(val_prev_str)
-                                if val_prev != 0:
+                                if val_prev < 0 and val_now >= 0:
+                                    pct_str = '흑자전환'
+                                elif val_prev >= 0 and val_now < 0:
+                                    pct_str = '적자전환'
+                                elif val_prev != 0:
                                     pct = ((val_now - val_prev) / abs(val_prev)) * 100
-                                    pct_str = f"{pct:+.1f}%"
+                                    if abs(pct) > 500:
+                                        pct_str = f"{pct:+.0f}%"
+                                    else:
+                                        pct_str = f"{pct:+.1f}%"
                                 else:
                                     pct_str = 'N/A'
                             except:
