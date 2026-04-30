@@ -229,37 +229,33 @@ def get_financial_data(symbol):
             res = requests.get(url, headers=headers, timeout=8)
             soup = BeautifulSoup(res.text, 'html.parser')
             result = {}
-            # 시가총액
             try:
                 market_cap = soup.select_one('em#_market_sum')
                 result['시가총액'] = market_cap.text.strip() + '억원' if market_cap else 'N/A'
             except: result['시가총액'] = 'N/A'
-            # PER
             try:
                 per = soup.select_one('em#_per')
                 result['PER'] = per.text.strip() if per else 'N/A'
             except: result['PER'] = 'N/A'
-            # PBR
             try:
                 pbr = soup.select_one('em#_pbr')
                 result['PBR'] = pbr.text.strip() if pbr else 'N/A'
             except: result['PBR'] = 'N/A'
-            # EPS
             try:
                 eps = soup.select_one('em#_eps')
                 result['EPS'] = eps.text.strip() if eps else 'N/A'
             except: result['EPS'] = 'N/A'
-            # 배당수익률
             try:
                 dps = soup.select_one('em#_dvr')
                 result['배당수익률'] = dps.text.strip() + '%' if dps else 'N/A'
             except: result['배당수익률'] = 'N/A'
-            # 매출/영업이익/순이익 (재무제표 테이블)
+
+            # 손익계산서 - 연간 테이블에서 최근 2년 데이터 크롤링
             try:
-                tables = soup.select('table.tb_type1')
+                tables = soup.select('table.tb_type1_ifrs, table.tb_type1')
                 fin_table = None
                 for t in tables:
-                    if '매출액' in t.text:
+                    if '매출액' in t.text and '영업이익' in t.text:
                         fin_table = t
                         break
                 if fin_table:
@@ -267,16 +263,42 @@ def get_financial_data(symbol):
                     for row in rows:
                         th = row.select_one('th')
                         tds = row.select('td')
-                        if th and tds:
+                        if th and len(tds) >= 2:
                             label = th.text.strip()
-                            val = tds[0].text.strip() if tds else 'N/A'
-                            if '매출액' in label: result['매출'] = val + '억원'
-                            elif '영업이익' in label: result['영업이익'] = val + '억원'
-                            elif '당기순이익' in label: result['순이익'] = val + '억원'
+                            # 첫번째 td = 최근연도, 두번째 td = 전년도
+                            val_now_str = re.sub(r'[^\d\.\-]', '', tds[0].text.strip())
+                            val_prev_str = re.sub(r'[^\d\.\-]', '', tds[1].text.strip())
+                            try:
+                                val_now = float(val_now_str)
+                                val_prev = float(val_prev_str)
+                                if val_prev != 0:
+                                    pct = ((val_now - val_prev) / abs(val_prev)) * 100
+                                    pct_str = f"{pct:+.1f}%"
+                                else:
+                                    pct_str = 'N/A'
+                            except:
+                                pct_str = 'N/A'
+                                val_now = 0
+
+                            val_display = f"{int(val_now):,}억원" if val_now_str else 'N/A'
+
+                            if '매출액' in label:
+                                result['매출'] = val_display
+                                result['매출_증감'] = pct_str
+                            elif '영업이익' in label and '영업이익률' not in label:
+                                result['영업이익'] = val_display
+                                result['영업이익_증감'] = pct_str
+                            elif '당기순이익' in label:
+                                result['순이익'] = val_display
+                                result['순이익_증감'] = pct_str
             except: pass
+
             result.setdefault('매출', 'N/A')
             result.setdefault('영업이익', 'N/A')
             result.setdefault('순이익', 'N/A')
+            result.setdefault('매출_증감', 'N/A')
+            result.setdefault('영업이익_증감', 'N/A')
+            result.setdefault('순이익_증감', 'N/A')
             return result
         else:
             return None
@@ -718,9 +740,9 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             st.markdown("---")
             st.markdown("**손익계산서 (최근 연간)**")
             f3, f4, f5 = st.columns(3)
-            with f3: st.metric("매출", fin_data["매출"])
-            with f4: st.metric("영업이익", fin_data["영업이익"])
-            with f5: st.metric("순이익", fin_data["순이익"])
+            with f3: st.metric("매출", fin_data["매출"], delta=fin_data["매출_증감"])
+            with f4: st.metric("영업이익", fin_data["영업이익"], delta=fin_data["영업이익_증감"])
+            with f5: st.metric("순이익", fin_data["순이익"], delta=fin_data["순이익_증감"])
         else:
             st.info("💡 재무 데이터를 불러올 수 없습니다.")
 
