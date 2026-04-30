@@ -218,7 +218,7 @@ def format_abbrev(val, sym):
     if val >= 1_000: return f"{sym}{val/1_000:.2f}K"
     return f"{sym}{val:.2f}"
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=1, show_spinner=False)
 def get_financial_data(symbol):
     try:
         is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
