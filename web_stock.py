@@ -484,7 +484,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
 
     # ✅ [변경] fetch range/interval - 월봉 max, 연봉 월봉데이터로 집계
     fetch_range_map = {
-        "분봉": "1d",
+        "분봉": "30d",
         "일봉": "5y",
         "월봉": "max",
         "연봉": "max",
@@ -651,9 +651,7 @@ def render_all(target_symbol, target_name, _timeframe, _use_candle, _show_bb, _b
             fig.add_trace(go.Scatter(x=f_dates_str, y=f_ma480, mode='lines', name='480선', line=dict(color='#9933cc', width=1.5, dash='dash')), row=1, col=1)
  
         if _show_bb and len(f_dates_str) > 0 and any(v is not None for v in f_bb_upper):
-            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_upper, mode='lines', name='BB 상단', line=dict(color='rgba(0,180,216,0.4)', width=1)), row=1, col=1)
-            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_lower, mode='lines', name='BB 하단', line=dict(color='rgba(0,180,216,0.4)', width=1), fill='tonexty', fillcolor='rgba(0,180,216,0.05)'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_mid, mode='lines', name='BB 중심', line=dict(color='rgba(0,180,216,0.6)', width=1, dash='dot')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=f_dates_str, y=f_bb_upper, mode='lines', name='BB 상단', line=dict(color='#ccaa00', width=1.5)), row=1, col=1)
 
         vol_colors = []
         f_trading_values = [c * v for c, v in zip(f_closes, f_volumes)]
