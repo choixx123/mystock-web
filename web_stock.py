@@ -348,17 +348,19 @@ if original_name in vip_dict:
     symbol = vip_dict[original_name]
 else:
     english_name, trans_success = translate_to_english(original_name)
+    quotes = []  # ← 이 한 줄 추가!
     if trans_success:
         search_res = get_cached_json(f"https://query2.finance.yahoo.com/v1/finance/search?q={english_name}")
         if search_res and search_res.get('quotes') and len(search_res['quotes']) > 0:
-         quotes = search_res['quotes']
+            quotes = search_res['quotes']  # ← 들여쓰기도 수정
     # 한국어 검색이면 .KS/.KQ 우선
-    if not re.match(r'^[a-zA-Z0-9\.\-\s]+$', original_name.strip()):
+    if quotes and not re.match(r'^[a-zA-Z0-9\.\-\s]+$', original_name.strip()):
         kr_quotes = [q for q in quotes if q.get('symbol','').endswith('.KS') or q.get('symbol','').endswith('.KQ')]
         if kr_quotes:
             quotes = kr_quotes
-    symbol = quotes[0]['symbol']
-    official_name = quotes[0].get('shortname', english_name)
+    if quotes:
+        symbol = quotes[0]['symbol']
+        official_name = quotes[0].get('shortname', english_name)
 
 if not symbol:
     st.markdown(f'<div class="delisted-alert">🚨 상장폐지 또는 검색 불가 ({original_name})<br><span style="font-size: 16px; font-weight: normal;">야후 파이낸스에서 완전히 삭제되었거나 종목명을 잘못 입력했습니다.</span></div>', unsafe_allow_html=True)
