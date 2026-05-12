@@ -237,7 +237,6 @@ def get_financial_data(symbol):
             result['PER'] = total_infos.get('PER', 'N/A')
             result['PBR'] = total_infos.get('PBR', 'N/A')
             result['EPS'] = total_infos.get('EPS', 'N/A')
-            result['배당수익률'] = int_data.get('dividendYieldRatio', 'N/A')
         except:
             result['시가총액'] = 'N/A'
 
