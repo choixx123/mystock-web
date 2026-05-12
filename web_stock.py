@@ -225,18 +225,32 @@ def get_financial_data(symbol):
         if not is_kr:
             return None
         code = symbol.split('.')[0]
-        url = f"https://m.stock.naver.com/api/stock/{code}/finance/annual"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+        result = {}
+
+        try:
+            int_url = f"https://m.stock.naver.com/api/stock/{code}/integration"
+            int_res = requests.get(int_url, headers=headers, timeout=8)
+            int_data = int_res.json()
+            total_infos = {item['key']: item['value'] for item in int_data.get('totalInfos', [])}
+            result['시가총액'] = total_infos.get('시총', 'N/A')
+            result['PER'] = total_infos.get('PER', 'N/A')
+            result['PBR'] = total_infos.get('PBR', 'N/A')
+            result['EPS'] = total_infos.get('EPS', 'N/A')
+            result['배당수익률'] = int_data.get('dividendYieldRatio', 'N/A')
+        except:
+            result['시가총액'] = 'N/A'
+
+        url = f"https://m.stock.naver.com/api/stock/{code}/finance/annual"
         res = requests.get(url, headers=headers, timeout=8)
         data = res.json()
 
-        # 확정 연도만 추출 (isConsensus가 N인 것)
         title_list = data['financeInfo']['trTitleList']
         actual_keys = [t['key'] for t in title_list if t.get('isConsensus', 'N') == 'N']
         if not actual_keys:
             return None
 
-        latest_key = actual_keys[-1]   # 가장 최근 확정 (예: 202512)
+        latest_key = actual_keys[-1]
         prev_key = actual_keys[-2] if len(actual_keys) >= 2 else None
 
         def get_val(row, key):
@@ -255,17 +269,11 @@ def get_financial_data(symbol):
                 return f"{pct:+.1f}%"
             return 'N/A'
 
-        result = {}
         row_list = data['financeInfo']['rowList']
-
         title_map = {
             '매출액': ('매출', '매출_증감'),
             '영업이익': ('영업이익', '영업이익_증감'),
             '당기순이익': ('순이익', '순이익_증감'),
-            'PER': ('PER', None),
-            'PBR': ('PBR', None),
-            'EPS': ('EPS', None),
-            '주당배당금': ('배당수익률', None),
         }
 
         for row in row_list:
@@ -274,23 +282,17 @@ def get_financial_data(symbol):
                 key_now, key_pct = title_map[t]
                 val_now = get_val(row, latest_key)
                 val_prev = get_val(row, prev_key) if prev_key else None
-
                 if val_now is not None:
-                    if t in ['매출액', '영업이익', '당기순이익']:
-                        result[key_now] = f"{int(val_now):,}억원"
-                        if key_pct:
-                            result[key_pct] = calc_pct(val_now, val_prev)
-                    else:
-                        result[key_now] = str(val_now)
+                    result[key_now] = f"{int(val_now):,}억원"
+                    result[key_pct] = calc_pct(val_now, val_prev)
 
-        # 시가총액은 없으니 N/A
-        result.setdefault('시가총액', 'N/A')
         result.setdefault('매출', 'N/A')
         result.setdefault('영업이익', 'N/A')
         result.setdefault('순이익', 'N/A')
         result.setdefault('매출_증감', 'N/A')
         result.setdefault('영업이익_증감', 'N/A')
         result.setdefault('순이익_증감', 'N/A')
+        result.setdefault('시가총액', 'N/A')
         result.setdefault('PER', 'N/A')
         result.setdefault('PBR', 'N/A')
         result.setdefault('EPS', 'N/A')
