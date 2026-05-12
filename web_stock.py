@@ -225,84 +225,77 @@ def get_financial_data(symbol):
         if not is_kr:
             return None
         code = symbol.split('.')[0]
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        url = f"https://m.stock.naver.com/api/stock/{code}/finance/annual"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
         res = requests.get(url, headers=headers, timeout=8)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        data = res.json()
+
+        # 확정 연도만 추출 (isConsensus가 N인 것)
+        title_list = data['financeInfo']['trTitleList']
+        actual_keys = [t['key'] for t in title_list if t.get('isConsensus', 'N') == 'N']
+        if not actual_keys:
+            return None
+
+        latest_key = actual_keys[-1]   # 가장 최근 확정 (예: 202512)
+        prev_key = actual_keys[-2] if len(actual_keys) >= 2 else None
+
+        def get_val(row, key):
+            try:
+                return float(str(row['columns'][key]['value']).replace(',', ''))
+            except:
+                return None
+
+        def calc_pct(now, prev_val):
+            if now is None or prev_val is None: return 'N/A'
+            if prev_val < 0 and now >= 0: return '흑자전환'
+            if prev_val >= 0 and now < 0: return '적자전환'
+            if prev_val < 0 and now < 0: return '적자지속'
+            if prev_val != 0:
+                pct = ((now - prev_val) / abs(prev_val)) * 100
+                return f"{pct:+.1f}%"
+            return 'N/A'
+
         result = {}
-        try:
-            market_cap = soup.select_one('em#_market_sum')
-            result['시가총액'] = market_cap.text.strip() + '억원' if market_cap else 'N/A'
-        except: result['시가총액'] = 'N/A'
-        try:
-            per = soup.select_one('em#_per')
-            result['PER'] = per.text.strip() if per else 'N/A'
-        except: result['PER'] = 'N/A'
-        try:
-            pbr = soup.select_one('em#_pbr')
-            result['PBR'] = pbr.text.strip() if pbr else 'N/A'
-        except: result['PBR'] = 'N/A'
-        try:
-            eps = soup.select_one('em#_eps')
-            result['EPS'] = eps.text.strip() if eps else 'N/A'
-        except: result['EPS'] = 'N/A'
-        try:
-            dps = soup.select_one('em#_dvr')
-            result['배당수익률'] = dps.text.strip() + '%' if dps else 'N/A'
-        except: result['배당수익률'] = 'N/A'
-        try:
-            tables = soup.select('table.tb_type1_ifrs, table.tb_type1')
-            fin_table = None
-            for t in tables:
-                if '매출액' in t.text and '영업이익' in t.text:
-                    fin_table = t
-                    break
-            if fin_table:
-                rows = fin_table.select('tr')
-                for row in rows:
-                    th = row.select_one('th')
-                    tds = row.select('td')
-                    if th and len(tds) >= 2:
-                        label = th.text.strip()
-                        val_now_str = re.sub(r'[^\d\.\-]', '', tds[0].text.strip())
-                        val_prev_str = re.sub(r'[^\d\.\-]', '', tds[1].text.strip())
-                        try:
-                            val_now = float(val_now_str)
-                            val_prev = float(val_prev_str)
-                            if val_prev < 0 and val_now >= 0:
-                                pct_str = '흑자전환'
-                            elif val_prev >= 0 and val_now < 0:
-                                pct_str = '적자전환'
-                            elif val_prev < 0 and val_now < 0:
-                                pct_str = '적자지속'
-                            elif val_prev != 0:
-                                pct = ((val_now - val_prev) / abs(val_prev)) * 100
-                                if abs(pct) > 500:
-                                    pct_str = f"{pct:+.0f}%"
-                                else:
-                                    pct_str = f"{pct:+.1f}%"
-                            else:
-                                pct_str = 'N/A'
-                        except:
-                            pct_str = 'N/A'
-                            val_now = 0
-                        val_display = f"{int(val_now):,}억원" if val_now_str else 'N/A'
-                        if '매출액' in label:
-                            result['매출'] = val_display
-                            result['매출_증감'] = pct_str
-                        elif '영업이익' in label and '영업이익률' not in label:
-                            result['영업이익'] = val_display
-                            result['영업이익_증감'] = pct_str
-                        elif '당기순이익' in label:
-                            result['순이익'] = val_display
-                            result['순이익_증감'] = pct_str
-        except: pass
+        row_list = data['financeInfo']['rowList']
+
+        title_map = {
+            '매출액': ('매출', '매출_증감'),
+            '영업이익': ('영업이익', '영업이익_증감'),
+            '당기순이익': ('순이익', '순이익_증감'),
+            'PER': ('PER', None),
+            'PBR': ('PBR', None),
+            'EPS': ('EPS', None),
+            '주당배당금': ('배당수익률', None),
+        }
+
+        for row in row_list:
+            t = row.get('title', '')
+            if t in title_map:
+                key_now, key_pct = title_map[t]
+                val_now = get_val(row, latest_key)
+                val_prev = get_val(row, prev_key) if prev_key else None
+
+                if val_now is not None:
+                    if t in ['매출액', '영업이익', '당기순이익']:
+                        result[key_now] = f"{int(val_now):,}억원"
+                        if key_pct:
+                            result[key_pct] = calc_pct(val_now, val_prev)
+                    else:
+                        result[key_now] = str(val_now)
+
+        # 시가총액은 없으니 N/A
+        result.setdefault('시가총액', 'N/A')
         result.setdefault('매출', 'N/A')
         result.setdefault('영업이익', 'N/A')
         result.setdefault('순이익', 'N/A')
         result.setdefault('매출_증감', 'N/A')
         result.setdefault('영업이익_증감', 'N/A')
         result.setdefault('순이익_증감', 'N/A')
+        result.setdefault('PER', 'N/A')
+        result.setdefault('PBR', 'N/A')
+        result.setdefault('EPS', 'N/A')
+        result.setdefault('배당수익률', 'N/A')
+
         return result
     except Exception:
         return None
